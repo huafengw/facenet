@@ -27,6 +27,7 @@ from __future__ import print_function
 from datetime import datetime
 import tensorflow.contrib.slim as slim
 import inception_preprocessing
+from inception_resnet_v2 import inception_resnet_v2, inception_resnet_v2_arg_scope
 import os.path
 import time
 import sys
@@ -126,9 +127,11 @@ def main(args):
         labels_batch = tf.identity(labels_batch, 'label_batch')
 
         # Build the inference graph
-        prelogits, _ = network.inference(image_batch, args.keep_probability, 
-            phase_train=phase_train_placeholder, bottleneck_layer_size=args.embedding_size,
-            weight_decay=args.weight_decay)
+        # prelogits, _ = network.inference(image_batch, args.keep_probability,
+        #     phase_train=phase_train_placeholder, bottleneck_layer_size=args.embedding_size,
+        #     weight_decay=args.weight_decay)
+        with slim.arg_scope(inception_resnet_v2_arg_scope()):
+            prelogits, _ = inception_resnet_v2(image_batch, num_classes=args.embedding_size, is_training=phase_train_placeholder)
 
         exclude = ['InceptionResnetV2/Logits', 'InceptionResnetV2/AuxLogits']
         variables_to_restore = slim.get_variables_to_restore(exclude=exclude)
