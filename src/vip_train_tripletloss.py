@@ -25,6 +25,7 @@ from __future__ import division
 from __future__ import print_function
 
 from datetime import datetime
+import tensorflow.contrib.slim as slim
 import inception_preprocessing
 import os.path
 import time
@@ -128,6 +129,9 @@ def main(args):
         prelogits, _ = network.inference(image_batch, args.keep_probability, 
             phase_train=phase_train_placeholder, bottleneck_layer_size=args.embedding_size,
             weight_decay=args.weight_decay)
+
+        exclude = ['InceptionResnetV2/Logits', 'InceptionResnetV2/AuxLogits']
+        variables_to_restore = slim.get_variables_to_restore(exclude=exclude)
         
         embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name='embeddings')
         # Split embeddings into anchor, positive and negative and calculate triplet loss
@@ -147,7 +151,7 @@ def main(args):
             learning_rate, args.moving_average_decay, tf.global_variables())
         
         # Create a saver
-        saver = tf.train.Saver(tf.trainable_variables(), max_to_keep=3)
+        saver = tf.train.Saver(variables_to_restore)
 
         # Build the summary operation based on the TF collection of Summaries.
         summary_op = tf.summary.merge_all()
