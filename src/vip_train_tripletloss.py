@@ -43,6 +43,39 @@ from tensorflow.python.ops import data_flow_ops
 
 from six.moves import xrange
 
+def read_pairs(pairs_filename):
+    pairs = []
+    with open(pairs_filename, 'r') as f:
+        for line in f.readlines()[1:]:
+            pair = line.strip().split(",")
+            pairs.append(pair)
+    return np.array(pairs)
+
+
+def get_paths(lfw_dir, pairs):
+    nrof_skipped_pairs = 0
+    path_list = []
+    issame_list = []
+    for pair in pairs:
+        if len(pair) == 3:
+            path0 = os.path.join(lfw_dir, pair[0], pair[1])
+            path1 = os.path.join(lfw_dir, pair[0], pair[2])
+            issame = True
+        elif len(pair) == 4:
+            path0 = os.path.join(lfw_dir, pair[0], pair[1])
+            path1 = os.path.join(lfw_dir, pair[2], pair[3])
+            issame = False
+        if os.path.exists(path0) and os.path.exists(path1):  # Only add the pair if both paths exist
+            path_list += (path0, path1)
+            issame_list.append(issame)
+        else:
+            nrof_skipped_pairs += 1
+    if nrof_skipped_pairs > 0:
+        print('Skipped %d image pairs' % nrof_skipped_pairs)
+
+    return path_list, issame_list
+
+
 def main(args):
   
     network = importlib.import_module(args.model_def)
@@ -73,14 +106,13 @@ def main(args):
     if args.lfw_dir:
         print('LFW directory: %s' % args.lfw_dir)
         # Read the file containing the pairs used for testing
-        pairs = lfw.read_pairs(os.path.expanduser(args.lfw_pairs))
+        pairs = read_pairs(os.path.expanduser(args.lfw_pairs))
         # Get the paths for the corresponding images
-        lfw_paths, actual_issame = lfw.get_paths(os.path.expanduser(args.lfw_dir), pairs, args.lfw_file_ext)
+        lfw_paths, actual_issame = get_paths(os.path.expanduser(args.lfw_dir), pairs)
         
     
     with tf.Graph().as_default():
         tf.set_random_seed(args.seed)
-        global_step = tf.Variable(0, trainable=False)
 
         # Placeholder for the learning rate
         learning_rate_placeholder = tf.placeholder(tf.float32, name='learning_rate')
@@ -135,7 +167,9 @@ def main(args):
 
         exclude = ['InceptionResnetV2/Logits', 'InceptionResnetV2/AuxLogits']
         variables_to_restore = slim.get_variables_to_restore(exclude=exclude)
-        
+
+        global_step = tf.Variable(0, trainable=False)
+
         embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name='embeddings')
         # Split embeddings into anchor, positive and negative and calculate triplet loss
         anchor, positive, negative = tf.unstack(tf.reshape(embeddings, [-1,3,args.embedding_size]), 3, 1)
@@ -478,7 +512,7 @@ def parse_arguments(argv):
     parser.add_argument('--lfw_pairs', type=str,
         help='The file containing the pairs to use for validation.', default='data/pairs.txt')
     parser.add_argument('--lfw_file_ext', type=str,
-        help='The file extension for the LFW dataset.', default='png', choices=['jpg', 'png'])
+        help='The file extension for the LFW dataset.', default='jpg', choices=['jpg', 'png'])
     parser.add_argument('--lfw_dir', type=str,
         help='Path to the data directory containing aligned face patches.', default='')
     parser.add_argument('--lfw_nrof_folds', type=int,
