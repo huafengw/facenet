@@ -46,7 +46,7 @@ from six.moves import xrange
 def read_pairs(pairs_filename):
     pairs = []
     with open(pairs_filename, 'r') as f:
-        for line in f.readlines()[1:]:
+        for line in f.readlines():
             pair = line.strip().split(",")
             pairs.append(pair)
     return np.array(pairs)
@@ -138,13 +138,13 @@ def main(args):
             for filename in tf.unstack(filenames):
                 file_contents = tf.read_file(filename)
                 image = tf.image.decode_image(file_contents, channels=3)
-                processed_image = inception_preprocessing.preprocess_image(image, args.image_size, args.image_size, is_training=False)
+                processed_image = inception_preprocessing.preprocess_image(image, args.image_size, args.image_size, is_training=True)
                 # if args.random_crop:
                 #     image = tf.random_crop(image, [args.image_size, args.image_size, 3])
                 # else:
                 #     image = tf.image.resize_image_with_crop_or_pad(image, args.image_size, args.image_size)
-                # if args.random_flip:
-                #     image = tf.image.random_flip_left_right(image)
+                if args.random_flip:
+                  processed_image = tf.image.random_flip_left_right(processed_image)
     
                 images.append(processed_image)
             images_and_labels.append([images, label])
@@ -165,8 +165,9 @@ def main(args):
         with slim.arg_scope(inception_resnet_v2_arg_scope()):
             prelogits, _ = inception_resnet_v2(image_batch, num_classes=args.embedding_size, is_training=phase_train_placeholder)
 
-        exclude = ['InceptionResnetV2/Logits', 'InceptionResnetV2/AuxLogits']
-        variables_to_restore = slim.get_variables_to_restore(exclude=exclude)
+        # exclude = ['InceptionResnetV2/Logits', 'InceptionResnetV2/AuxLogits']
+        # variables_to_restore = slim.get_variables_to_restore(exclude=exclude)
+        # loader = tf.train.Saver(variables_to_restore)
 
         global_step = tf.Variable(0, trainable=False)
 
@@ -184,11 +185,20 @@ def main(args):
         total_loss = tf.add_n([triplet_loss] + regularization_losses, name='total_loss')
 
         # Build a Graph that trains the model with one batch of examples and updates the model parameters
-        train_op = facenet.train(total_loss, global_step, args.optimizer, 
-            learning_rate, args.moving_average_decay, tf.global_variables())
-        
+        train_layers = ['Logits', 'Conv2d_7b_1x1', 'Block8', 'Repeat_2', 'Mixed_7a']
+        var_list = []
+        for v in tf.global_variables():
+          splits = v.name.split("/")
+          if len(splits) > 2 and splits[1] in train_layers:
+            var_list.append(v)
+        train_op = facenet.train(total_loss, global_step, args.optimizer,
+            learning_rate, args.moving_average_decay, var_list)
+
         # Create a saver
-        saver = tf.train.Saver(variables_to_restore)
+        loader = tf.train.Saver()
+        saver = tf.train.Saver(max_to_keep=3)
+        #train_op = facenet.train(total_loss, global_step, args.optimizer, 
+        #    learning_rate, args.moving_average_decay, tf.global_variables())
 
         # Build the summary operation based on the TF collection of Summaries.
         summary_op = tf.summary.merge_all()
@@ -209,7 +219,7 @@ def main(args):
 
             if args.pretrained_model:
                 print('Restoring pretrained model: %s' % args.pretrained_model)
-                saver.restore(sess, os.path.expanduser(args.pretrained_model))
+                loader.restore(sess, os.path.expanduser(args.pretrained_model))
 
             # Training and validation loop
             epoch = 0
@@ -247,7 +257,6 @@ def train(args, sess, dataset, epoch, image_paths_placeholder, labels_placeholde
     while batch_number < args.epoch_size:
         # Sample people randomly from the dataset
         image_paths, num_per_class = sample_people(dataset, args.people_per_batch, args.images_per_person)
-        
         print('Running forward pass on sampled images: ', end='')
         start_time = time.time()
         nrof_examples = args.people_per_batch * args.images_per_person
@@ -287,7 +296,7 @@ def train(args, sess, dataset, epoch, image_paths_placeholder, labels_placeholde
             start_time = time.time()
             batch_size = min(nrof_examples-i*args.batch_size, args.batch_size)
             feed_dict = {batch_size_placeholder: batch_size, learning_rate_placeholder: lr, phase_train_placeholder: True}
-            err, _, step, emb, lab = sess.run([loss, train_op, global_step, embeddings, labels_batch], feed_dict=feed_dict)
+            val_summary, err, _, step, emb, lab = sess.run([summary_op, loss, train_op, global_step, embeddings, labels_batch], feed_dict=feed_dict)
             emb_array[lab,:] = emb
             loss_array[i] = err
             duration = time.time() - start_time
@@ -297,6 +306,7 @@ def train(args, sess, dataset, epoch, image_paths_placeholder, labels_placeholde
             i += 1
             train_time += duration
             summary.value.add(tag='loss', simple_value=err)
+            #summary_writer.add_summary(val_summary, step * nrof_batches + i)
             
         # Add validation loss and accuracy to summary
         #pylint: disable=maybe-no-member
