@@ -78,8 +78,6 @@ def get_paths(lfw_dir, pairs):
 
 def main(args):
   
-    network = importlib.import_module(args.model_def)
-
     subdir = datetime.strftime(datetime.now(), '%Y%m%d-%H%M%S')
     log_dir = os.path.join(os.path.expanduser(args.logs_base_dir), subdir)
     if not os.path.isdir(log_dir):  # Create the log directory if it doesn't exist
@@ -308,7 +306,7 @@ def train(args, sess, dataset, epoch, image_paths_placeholder, labels_placeholde
             summary.value.add(tag='loss', simple_value=err)
             summary.value.add(tag='triplet_loss', simple_value=triplet_err)
             # summary_writer.add_summary(val_summary, step * nrof_batches + i)
-            
+
         # Add validation loss and accuracy to summary
         #pylint: disable=maybe-no-member
         summary.value.add(tag='time/selection', simple_value=selection_time)
