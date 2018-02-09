@@ -32,6 +32,7 @@ if __name__ == '__main__':
   parser.add_argument("--epochs", help="number of epochs", type=int, default=200)
   parser.add_argument("--start_from_scratch", help="Start training from pretrained inception model", action="store_true")
   parser.add_argument("--input_data", help="HDFS path to input dataset")
+  parser.add_argument('--num_worker', default=2, type=int, help='The worker num')
   parser.add_argument("--tensorboard", help="launch tensorboard process", action="store_true")
   parser.add_argument("--pretrained_ckpt", help="The pretrained inception model", default='hdfs://hdfs-server/home/mlp/vincent/facenet')
 
@@ -85,7 +86,7 @@ if __name__ == '__main__':
 
   print("{0} ===== Start".format(datetime.now().isoformat()))
   sc = SparkContext(conf = conf)
-  num_executors = int(sc._conf.get("spark.executor.instances"))
+  num_executors = int(args.num_worker)
   num_ps = 1
 
   cluster = TFCluster.run(sc, main_fun, args, num_executors, num_ps, args.tensorboard, TFCluster.InputMode.TENSORFLOW)
