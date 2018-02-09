@@ -138,7 +138,7 @@ def main(args):
             for filename in tf.unstack(filenames):
                 file_contents = tf.read_file(filename)
                 image = tf.image.decode_image(file_contents, channels=3)
-                processed_image = inception_preprocessing.preprocess_image(image, args.image_size, args.image_size, is_training=True)
+                processed_image = inception_preprocessing.preprocess_image(image, args.image_size, args.image_size, is_training=False)
                 # if args.random_crop:
                 #     image = tf.random_crop(image, [args.image_size, args.image_size, 3])
                 # else:
@@ -165,9 +165,9 @@ def main(args):
         with slim.arg_scope(inception_resnet_v2_arg_scope()):
             prelogits, _ = inception_resnet_v2(image_batch, num_classes=args.embedding_size, is_training=phase_train_placeholder)
 
-        # exclude = ['InceptionResnetV2/Logits', 'InceptionResnetV2/AuxLogits']
-        # variables_to_restore = slim.get_variables_to_restore(exclude=exclude)
-        # loader = tf.train.Saver(variables_to_restore)
+        exclude = ['InceptionResnetV2/Logits', 'InceptionResnetV2/AuxLogits']
+        variables_to_restore = slim.get_variables_to_restore(exclude=exclude)
+        loader = tf.train.Saver(variables_to_restore)
 
         global_step = tf.Variable(0, trainable=False)
 
@@ -195,7 +195,7 @@ def main(args):
             learning_rate, args.moving_average_decay, var_list)
 
         # Create a saver
-        loader = tf.train.Saver()
+        # loader = tf.train.Saver()
         saver = tf.train.Saver(max_to_keep=3)
         #train_op = facenet.train(total_loss, global_step, args.optimizer, 
         #    learning_rate, args.moving_average_decay, tf.global_variables())
@@ -296,7 +296,7 @@ def train(args, sess, dataset, epoch, image_paths_placeholder, labels_placeholde
             start_time = time.time()
             batch_size = min(nrof_examples-i*args.batch_size, args.batch_size)
             feed_dict = {batch_size_placeholder: batch_size, learning_rate_placeholder: lr, phase_train_placeholder: True}
-            val_summary, err, _, step, emb, lab = sess.run([summary_op, loss, train_op, global_step, embeddings, labels_batch], feed_dict=feed_dict)
+            triplet_err, val_summary, err, _, step, emb, lab = sess.run([triplet_loss, summary_op, loss, train_op, global_step, embeddings, labels_batch], feed_dict=feed_dict)
             emb_array[lab,:] = emb
             loss_array[i] = err
             duration = time.time() - start_time
@@ -306,7 +306,8 @@ def train(args, sess, dataset, epoch, image_paths_placeholder, labels_placeholde
             i += 1
             train_time += duration
             summary.value.add(tag='loss', simple_value=err)
-            #summary_writer.add_summary(val_summary, step * nrof_batches + i)
+            summary.value.add(tag='triplet_loss', simple_value=triplet_err)
+            # summary_writer.add_summary(val_summary, step * nrof_batches + i)
             
         # Add validation loss and accuracy to summary
         #pylint: disable=maybe-no-member
