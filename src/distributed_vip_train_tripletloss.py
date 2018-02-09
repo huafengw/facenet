@@ -34,7 +34,7 @@ import numpy as np
 import itertools
 import argparse
 from src import facenet
-import lfw
+from src import lfw
 
 from tensorflow.python.ops import data_flow_ops
 
