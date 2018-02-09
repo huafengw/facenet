@@ -24,18 +24,16 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from datetime import datetime
 import tensorflow.contrib.slim as slim
-import inception_preprocessing
-from inception_resnet_v2 import inception_resnet_v2, inception_resnet_v2_arg_scope
+from src import inception_preprocessing
+from src.inception_resnet_v2 import inception_resnet_v2, inception_resnet_v2_arg_scope
 import os.path
 import time
-import sys
 import tensorflow as tf
 import numpy as np
 import itertools
 import argparse
-import facenet
+from src import facenet
 import lfw
 
 from tensorflow.python.ops import data_flow_ops
