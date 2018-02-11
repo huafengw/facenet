@@ -34,11 +34,11 @@ if __name__ == '__main__':
   parser.add_argument("--input_data", help="HDFS path to input dataset")
   parser.add_argument('--num_executor', default=2, type=int, help='The spark executor num')
   parser.add_argument("--tensorboard", help="launch tensorboard process", action="store_true")
-  parser.add_argument("--pretrained_ckpt", help="The pretrained inception model", default='hdfs://hdfs-server/home/mlp/vincent/facenet')
+  parser.add_argument("--pretrained_ckpt", help="The pretrained inception model", default='hdfs://hdfs-server/user/vincent/facenet/inception_resnet_v2_2016_08_30.ckpt')
   parser.add_argument("--spark_executor_cores", default=4, type=int, help='The spark executor cores')
 
   parser.add_argument('--workspace', type=str,
-        help='Directory where to write event logs and checkpoints on hdfs.', default='hdfs://hdfs-server/home/mlp/vincent/facenet')
+        help='Directory where to write event logs and checkpoints on hdfs.', default='hdfs://hdfs-server/user/vincent/facenet')
   parser.add_argument('--weight_decay', type=float,
         help='L2 weight regularization.', default=0.0)
   parser.add_argument('--batch_size', type=int,
@@ -68,6 +68,8 @@ if __name__ == '__main__':
         help='Exponential decay for tracking of training parameters.', default=0.9999)
   parser.add_argument('--seed', type=int,
         help='Random seed.', default=666)
+  parser.add_argument('--random_flip',
+        help='Performs random horizontal flipping of training images.', action='store_true')  
 
   classpath=os.popen(os.environ["HADOOP_HOME"] + "/bin/hadoop classpath --glob").read()
   args = parser.parse_args()

@@ -90,14 +90,16 @@ def train(server, cluster_spec, args, ctx):
   import tarfile
   def download_images_to_local(path):
     assert tf.gfile.Exists(path)
-    file_name = path.splits("/")[-1]
-    local_path = "file:///tmp/" + file_name
-    tf.gfile.Copy(path, local_path)
+    file_name = path.split("/")[-1]
+    local_path = "/tmp/" + file_name
+    if not os.path.exists(local_path):
+      tf.gfile.Copy(path, "file://" + local_path)
     tar = tarfile.open(local_path, "r:")
     tar.extractall("/tmp")
+    os.remove(local_path)
 
   if not os.path.exists("/tmp/dress"):
-    download_images_to_local(args.args)
+    download_images_to_local(args.input_data)
 
   task_index = ctx.task_index
   if_chief = task_index == 0
@@ -246,7 +248,7 @@ def _train(args, sess, dataset, image_paths_placeholder, labels_placeholder, lab
     nrof_examples = args.people_per_batch * args.images_per_person
     labels_array = np.reshape(np.arange(nrof_examples), (-1, 3))
     image_paths_array = np.reshape(np.expand_dims(np.array(image_paths), 1), (-1, 3))
-    sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array})
+    sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array, batch_size_placeholder: args.batch_size, learning_rate_placeholder: lr, phase_train_placeholder: True})
     emb_array = np.zeros((nrof_examples, embedding_size))
     nrof_batches = int(np.ceil(nrof_examples / args.batch_size))
     for i in range(nrof_batches):
