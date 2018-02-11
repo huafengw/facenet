@@ -34,7 +34,6 @@ import numpy as np
 import itertools
 import argparse
 from src import facenet
-from src import lfw
 
 from tensorflow.python.ops import data_flow_ops
 
@@ -72,6 +71,19 @@ def get_paths(lfw_dir, pairs):
     print('Skipped %d image pairs' % nrof_skipped_pairs)
 
   return path_list, issame_list
+
+
+def evaluate(embeddings, actual_issame, nrof_folds=10):
+    # Calculate evaluation metrics
+    thresholds = np.arange(0, 4, 0.01)
+    embeddings1 = embeddings[0::2]
+    embeddings2 = embeddings[1::2]
+    tpr, fpr, accuracy = facenet.calculate_roc(thresholds, embeddings1, embeddings2,
+                                               np.asarray(actual_issame), nrof_folds=nrof_folds)
+    thresholds = np.arange(0, 4, 0.001)
+    val, val_std, far = facenet.calculate_val(thresholds, embeddings1, embeddings2,
+                                              np.asarray(actual_issame), 1e-3, nrof_folds=nrof_folds)
+    return tpr, fpr, accuracy, val, val_std, far
 
 
 def train(server, cluster_spec, args, ctx):
@@ -381,7 +393,7 @@ def evaluate(sess, image_paths, embeddings, labels_batch, image_paths_placeholde
 
   assert (np.all(label_check_array == 1))
 
-  _, _, accuracy, val, val_std, far = lfw.evaluate(emb_array, actual_issame, nrof_folds=nrof_folds)
+  _, _, accuracy, val, val_std, far = evaluate(emb_array, actual_issame, nrof_folds=nrof_folds)
 
   print('Accuracy: %1.3f+-%1.3f' % (np.mean(accuracy), np.std(accuracy)))
   print('Validation rate: %2.5f+-%2.5f @ FAR=%2.5f' % (val, val_std, far))
