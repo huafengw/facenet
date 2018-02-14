@@ -34,11 +34,11 @@ if __name__ == '__main__':
   parser.add_argument("--input_data", help="HDFS path to input dataset")
   parser.add_argument('--num_executor', default=2, type=int, help='The spark executor num')
   parser.add_argument("--tensorboard", help="launch tensorboard process", action="store_true")
-  parser.add_argument("--pretrained_ckpt", help="The pretrained inception model", default='hdfs://hdfs-server/user/vincent/facenet/inception_resnet_v2_2016_08_30.ckpt')
+  parser.add_argument("--pretrained_ckpt", help="The pretrained inception model", default='hdfs://bipcluster/user/vincent.wang/facenet/inception_resnet_v2_2016_08_30.ckpt')
   parser.add_argument("--spark_executor_cores", default=4, type=int, help='The spark executor cores')
 
   parser.add_argument('--workspace', type=str,
-        help='Directory where to write event logs and checkpoints on hdfs.', default='hdfs://hdfs-server/user/vincent/facenet')
+        help='Directory where to write event logs and checkpoints on hdfs.', default='hdfs://bipcluster/user/vincent.wang/facenet')
   parser.add_argument('--weight_decay', type=float,
         help='L2 weight regularization.', default=0.0)
   parser.add_argument('--batch_size', type=int,
@@ -69,7 +69,10 @@ if __name__ == '__main__':
   parser.add_argument('--seed', type=int,
         help='Random seed.', default=666)
   parser.add_argument('--random_flip',
-        help='Performs random horizontal flipping of training images.', action='store_true')  
+        help='Performs random horizontal flipping of training images.', action='store_true')
+  parser.add_argument('--lfw_nrof_folds', type=int,
+        help='Number of folds to use for cross validation. Mainly used for testing.', default=10)
+
 
   classpath=os.popen(os.environ["HADOOP_HOME"] + "/bin/hadoop classpath --glob").read()
   args = parser.parse_args()
@@ -77,13 +80,14 @@ if __name__ == '__main__':
   checkpoint_dir = args.workspace + "/models"
   if args.start_from_scratch:
     print("Transforming the pretrained inception model...")
-    transform_pretrained.transform(args.pretrained_ckpt, args.image_size, checkpoint_dir, args.embedding_size)
+    transform_pretrained.transform(args, args.pretrained_ckpt, args.image_size, checkpoint_dir, args.embedding_size)
 
   spark_executor_instances = args.num_executor
   spark_cores_max = spark_executor_instances * args.spark_executor_cores
     
   conf = SparkConf() \
     .setAppName("triplet_distributed_train") \
+    .set("spark.eventLog.enabled", "false") \
     .set("spark.dynamicAllocation.enabled", "false") \
     .set("spark.shuffle.service.enabled", "false") \
     .set("spark.executor.cores", str(args.spark_executor_cores)) \
@@ -93,7 +97,8 @@ if __name__ == '__main__':
     .setExecutorEnv("JAVA_HOME", os.environ["JAVA_HOME"]) \
     .setExecutorEnv("HADOOP_HDFS_HOME", os.environ["HADOOP_HOME"]) \
     .setExecutorEnv("LD_LIBRARY_PATH", os.environ["JAVA_HOME"] + "/jre/lib/amd64/server:" + os.environ["HADOOP_HOME"] + "/lib/native:" + "/usr/local/cuda-8.0/lib64" ) \
-    .setExecutorEnv("CLASSPATH", classpath)
+    .setExecutorEnv("CLASSPATH", classpath) \
+    .set("hostbalance_shuffle","true")
 
   print("{0} ===== Start".format(datetime.now().isoformat()))
   sc = SparkContext(conf = conf)
@@ -103,4 +108,9 @@ if __name__ == '__main__':
   cluster = TFCluster.run(sc, main_fun, args, num_executors, num_ps, args.tensorboard, TFCluster.InputMode.TENSORFLOW)
   cluster.shutdown()
   print("{0} ===== Stop".format(datetime.now().isoformat()))
+  import traceback
+  try:
+    sc.stop()
+  except BaseException as e:
+    traceback.print_exc()
 

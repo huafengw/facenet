@@ -73,7 +73,7 @@ def get_paths(lfw_dir, pairs):
   return path_list, issame_list
 
 
-def evaluate(embeddings, actual_issame, nrof_folds=10):
+def _evaluate(embeddings, actual_issame, nrof_folds=10):
     # Calculate evaluation metrics
     thresholds = np.arange(0, 4, 0.01)
     embeddings1 = embeddings[0::2]
@@ -190,11 +190,11 @@ def train(server, cluster_spec, args, ctx):
                                                args.learning_rate_decay_factor, staircase=True)
     # Calculate the total losses
     regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-    total_loss = tf.add_n([triplet_loss] + regularization_losses, name='total_loss')
+    total_loss = tf.add_n([triplet_loss] + regularization_losses, name='total_losses')
 
     tf.summary.scalar('learning_rate', learning_rate)
     tf.summary.scalar('triplet_loss', triplet_loss)
-    tf.summary.scalar('total_loss', total_loss)
+    tf.summary.scalar('total_losses', total_loss)
 
     # Build a Graph that trains the model with one batch of examples and updates the model parameters
     train_layers = ['Logits', 'Conv2d_7b_1x1', 'Block8', 'Repeat_2', 'Mixed_7a']
@@ -213,23 +213,25 @@ def train(server, cluster_spec, args, ctx):
 
     with tf.train.MonitoredTrainingSession(master=server.target,
                                            is_chief=if_chief,
-                                           checkpoint_dir=checkpoint_dir,
                                            config=sess_config,
+                                           checkpoint_dir=checkpoint_dir,
                                            hooks=hooks,
                                            stop_grace_period_secs=30,
                                            save_summaries_steps=50,
                                            save_checkpoint_secs=60) as sess:
       # Training and validation loop
-      summary_writer = tf.summary.FileWriter(log_dir, sess.graph)
+      if if_chief:
+        summary_writer = tf.summary.FileWriter(log_dir, sess.graph)
       while not sess.should_stop():
         # Train for one epoch
         step = _train(args, sess, train_set, image_paths_placeholder, labels_placeholder, labels_batch,
                batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, input_queue,
                global_step, embeddings, total_loss, train_op, args.embedding_size, triplet_loss)
-
-        evaluate(sess, val_image_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder,
+        
+        if if_chief:
+          evaluate(sess, val_image_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder,
                    batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op,
-                   actual_issame, args.batch_size, args.lfw_nrof_folds, log_dir, step, summary_writer, args.embedding_size)
+                   actual_issame, args.batch_size, args.lfw_nrof_folds, log_dir, step, args.embedding_size, summary_writer)
 
   return checkpoint_dir
 
@@ -371,7 +373,7 @@ def sample_people(dataset, people_per_batch, images_per_person):
 
 def evaluate(sess, image_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder,
              batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, actual_issame,
-             batch_size, nrof_folds, log_dir, step, summary_writer, embedding_size):
+             batch_size, nrof_folds, log_dir, step, embedding_size, summary_writer):
   start_time = time.time()
   # Run forward pass to calculate embeddings
   print('Running forward pass on LFW images: ', end='')
@@ -395,7 +397,7 @@ def evaluate(sess, image_paths, embeddings, labels_batch, image_paths_placeholde
 
   assert (np.all(label_check_array == 1))
 
-  _, _, accuracy, val, val_std, far = evaluate(emb_array, actual_issame, nrof_folds=nrof_folds)
+  _, _, accuracy, val, val_std, far = _evaluate(emb_array, actual_issame, nrof_folds=nrof_folds)
 
   print('Accuracy: %1.3f+-%1.3f' % (np.mean(accuracy), np.std(accuracy)))
   print('Validation rate: %2.5f+-%2.5f @ FAR=%2.5f' % (val, val_std, far))
@@ -405,10 +407,10 @@ def evaluate(sess, image_paths, embeddings, labels_batch, image_paths_placeholde
   # pylint: disable=maybe-no-member
   summary.value.add(tag='lfw/accuracy', simple_value=np.mean(accuracy))
   summary.value.add(tag='lfw/val_rate', simple_value=val)
-  summary.value.add(tag='time/lfw', simple_value=lfw_time)
+  summary.value.add(tag='time/lfw', simple_value=lfw_time)  
   summary_writer.add_summary(summary, step)
-  with open(os.path.join(log_dir, 'lfw_result.txt'), 'at') as f:
-    f.write('%d\t%.5f\t%.5f\n' % (step, np.mean(accuracy), val))
+  # with open(os.path.join(log_dir, 'lfw_result.txt'), 'at') as f:
+  #  f.write('%d\t%.5f\t%.5f\n' % (step, np.mean(accuracy), val))
 
 
 def get_learning_rate_from_file(filename, epoch):

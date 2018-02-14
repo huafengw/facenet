@@ -247,7 +247,7 @@ def inception_resnet_v2(inputs, num_classes=1001, is_training=True,
 inception_resnet_v2.default_image_size = 299
 
 
-def inception_resnet_v2_arg_scope(weight_decay=0.000002,
+def inception_resnet_v2_arg_scope(weight_decay=0.0000002,
                                   batch_norm_decay=0.9997,
                                   batch_norm_epsilon=0.001):
   """Yields the scope with the default parameters for inception_resnet_v2.
