@@ -24,7 +24,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from datetime import datetime
 import tensorflow.contrib.slim as slim
+from src import transform_pretrained
 from src import inception_preprocessing
 from src.inception_resnet_v2 import inception_resnet_v2, inception_resnet_v2_arg_scope
 import os.path
@@ -102,14 +104,16 @@ def train(server, cluster_spec, args, ctx):
     download_images_to_local(args.input_data)
 
   task_index = ctx.task_index
-  if_chief = task_index == 0
+  is_chief = task_index == 0
 
   data_dir = "/tmp/dress/train"
   val_dir = "/tmp/dress/val"
   val_pairs = "/tmp/dress/pairs.txt"
   task_index = ctx.task_index
-  checkpoint_dir = args.workspace + "/models"
-  log_dir = args.workspace + "/logs"
+  subdir = datetime.strftime(datetime.now(), '%Y%m%d-%H%M%S') 
+
+  checkpoint_dir = args.workspace + "/models/" + subdir
+  log_dir = args.workspace + "/logs/" + subdir
   if task_index == 0:
     if not tf.gfile.Exists(args.workspace):
       tf.gfile.MakeDirs(args.workspace)
@@ -118,6 +122,11 @@ def train(server, cluster_spec, args, ctx):
     if not tf.gfile.Exists(log_dir):
         tf.gfile.MakeDirs(log_dir)
 
+  if is_chief and args.start_from_scratch:
+    print("Transforming the pretrained inception model...")
+    transform_pretrained.transform(args, args.pretrained_ckpt, args.image_size, checkpoint_dir, args.embedding_size)
+    print("Transform finished")
+  
   np.random.seed(seed=args.seed)
   train_set = facenet.get_dataset(data_dir)
 
@@ -139,7 +148,7 @@ def train(server, cluster_spec, args, ctx):
     image_paths_placeholder = tf.placeholder(tf.string, shape=(None, 3), name='image_paths')
     labels_placeholder = tf.placeholder(tf.int64, shape=(None, 3), name='labels')
 
-    input_queue = data_flow_ops.FIFOQueue(capacity=100000,
+    input_queue = data_flow_ops.FIFOQueue(capacity=10000,
                                           dtypes=[tf.string, tf.int64],
                                           shapes=[(3,), (3,)],
                                           shared_name=None, name=None)
@@ -178,7 +187,7 @@ def train(server, cluster_spec, args, ctx):
       prelogits, _ = inception_resnet_v2(image_batch, num_classes=args.embedding_size,
                                          is_training=phase_train_placeholder)
 
-    global_step = tf.contrib.framework.get_or_create_global_step()
+    global_step = tf.train.get_or_create_global_step()
 
     embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name='embeddings')
     # Split embeddings into anchor, positive and negative and calculate triplet loss
@@ -190,7 +199,7 @@ def train(server, cluster_spec, args, ctx):
                                                args.learning_rate_decay_factor, staircase=True)
     # Calculate the total losses
     regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-    total_loss = tf.add_n([triplet_loss] + regularization_losses, name='total_losses')
+    total_loss = tf.add_n([triplet_loss] + regularization_losses, name='total_loss')
 
     tf.summary.scalar('learning_rate', learning_rate)
     tf.summary.scalar('triplet_loss', triplet_loss)
@@ -206,51 +215,62 @@ def train(server, cluster_spec, args, ctx):
     train_op = facenet.train(total_loss, global_step, args.optimizer,
                              learning_rate, args.moving_average_decay, var_list)
 
+    summary_op = tf.summary.merge_all()
+    
     hooks = [tf.train.StopAtStepHook(int(args.epochs) * int(args.epoch_size))]
 
     sess_config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False,
                                  device_filters=['/job:ps', '/job:worker/task:%d' % task_index])
-
+    #sess_config.operation_timeout_in_ms=80000
+    
     with tf.train.MonitoredTrainingSession(master=server.target,
-                                           is_chief=if_chief,
+                                           is_chief=is_chief,
                                            config=sess_config,
                                            checkpoint_dir=checkpoint_dir,
                                            hooks=hooks,
+                                           save_summaries_steps=None,
+                                           save_summaries_secs=None,
                                            stop_grace_period_secs=30,
-                                           save_summaries_steps=50,
-                                           save_checkpoint_secs=60) as sess:
+                                           save_checkpoint_secs=600) as sess:
       # Training and validation loop
-      if if_chief:
-        summary_writer = tf.summary.FileWriter(log_dir, sess.graph)
+      print(type(sess), flush=True)
+      print(type(sess._sess), flush=True)
+      print(type(sess._sess._sess), flush=True)
+      print(type(sess._sess._sess._sess), flush=True)
+      print(type(sess._sess._sess._sess._sess), flush=True) 
+      
+      summary_writer = tf.summary.FileWriter(log_dir, sess.graph) if is_chief else None
+
       while not sess.should_stop():
         # Train for one epoch
         step = _train(args, sess, train_set, image_paths_placeholder, labels_placeholder, labels_batch,
                batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, input_queue,
-               global_step, embeddings, total_loss, train_op, args.embedding_size, triplet_loss)
-        
-        if if_chief:
+               global_step, embeddings, total_loss, train_op, args.embedding_size, triplet_loss, summary_op, summary_writer)
+        if is_chief:
+          # checkpoint_path = os.path.join(checkpoint_dir, 'model-%s.ckpt' % "test")
+          # saver.save(sess._sess._sess._sess._sess, checkpoint_path, global_step=step, write_meta_graph=False)
           evaluate(sess, val_image_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder,
                    batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op,
-                   actual_issame, args.batch_size, args.lfw_nrof_folds, log_dir, step, args.embedding_size, summary_writer)
+                   actual_issame, args.batch_size, args.lfw_nrof_folds, log_dir, step, summary_writer, args.embedding_size)
 
   return checkpoint_dir
 
 
 def _train(args, sess, dataset, image_paths_placeholder, labels_placeholder, labels_batch,
            batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, input_queue,
-           global_step, embeddings, loss, train_op, embedding_size, triplet_loss):
+           global_step, embeddings, loss, train_op, embedding_size, triplet_loss, summary_op, summary_writer):
   batch_number = 0
 
   lr = args.learning_rate
   while batch_number < args.epoch_size:
     # Sample people randomly from the dataset
     image_paths, num_per_class = sample_people(dataset, args.people_per_batch, args.images_per_person)
-    print('Running forward pass on sampled images: ', end='')
+    print('Running forward pass on sampled images: ', flush=True)
     start_time = time.time()
     nrof_examples = args.people_per_batch * args.images_per_person
     labels_array = np.reshape(np.arange(nrof_examples), (-1, 3))
     image_paths_array = np.reshape(np.expand_dims(np.array(image_paths), 1), (-1, 3))
-    sess.run(enqueue_op, {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array, batch_size_placeholder: args.batch_size, learning_rate_placeholder: lr, phase_train_placeholder: True})
+    sess.run(enqueue_op, feed_dict = {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array})
     emb_array = np.zeros((nrof_examples, embedding_size))
     nrof_batches = int(np.ceil(nrof_examples / args.batch_size))
     for i in range(nrof_batches):
@@ -280,22 +300,28 @@ def _train(args, sess, dataset, image_paths_placeholder, labels_placeholder, lab
     i = 0
     emb_array = np.zeros((nrof_examples, embedding_size))
     loss_array = np.zeros((nrof_triplets,))
+    summary = tf.Summary()
     while i < nrof_batches:
       start_time = time.time()
       batch_size = min(nrof_examples - i * args.batch_size, args.batch_size)
       feed_dict = {batch_size_placeholder: batch_size, learning_rate_placeholder: lr, phase_train_placeholder: True}
-      err, _, step, emb, lab = sess.run(
-        [loss, train_op, global_step, embeddings, labels_batch], feed_dict=feed_dict)
+      err, triplet_err, _, step, emb, lab = sess.run(
+        [loss, triplet_loss, train_op, global_step, embeddings, labels_batch], feed_dict=feed_dict)
       emb_array[lab, :] = emb
       loss_array[i] = err
       duration = time.time() - start_time
       epoch = step // args.epoch_size
-      print('Epoch: [%d][%d/%d]\tTime %.3f\tLoss %2.3f' %
-            (epoch, batch_number + 1, args.epoch_size, duration, err))
+      #print('Epoch: [%d][%d/%d]\tTime %.3f\tLoss %2.3f' %
+      #      (epoch, batch_number + 1, args.epoch_size, duration, err))
       batch_number += 1
       i += 1
       train_time += duration
-
+      summary.value.add(tag='loss', simple_value=err)
+      summary.value.add(tag='triplet_loss', simple_value=triplet_err)
+    
+    if summary_writer:
+      summary_writer.add_summary(summary, step)
+    
   return step
 
 
@@ -373,7 +399,7 @@ def sample_people(dataset, people_per_batch, images_per_person):
 
 def evaluate(sess, image_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder,
              batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, actual_issame,
-             batch_size, nrof_folds, log_dir, step, embedding_size, summary_writer):
+             batch_size, nrof_folds, log_dir, step, summary_writer, embedding_size):
   start_time = time.time()
   # Run forward pass to calculate embeddings
   print('Running forward pass on LFW images: ', end='')
@@ -426,74 +452,3 @@ def get_learning_rate_from_file(filename, epoch):
         else:
           return learning_rate
 
-
-def parse_arguments(argv):
-  parser = argparse.ArgumentParser()
-
-  parser.add_argument('--logs_base_dir', type=str,
-                      help='Directory where to write event logs.', default='~/logs/facenet')
-  parser.add_argument('--models_base_dir', type=str,
-                      help='Directory where to write trained models and checkpoints.', default='~/models/facenet')
-  parser.add_argument('--gpu_memory_fraction', type=float,
-                      help='Upper bound on the amount of GPU memory that will be used by the process.', default=0.95)
-  parser.add_argument('--pretrained_model', type=str,
-                      help='Load a pretrained model before training starts.')
-  parser.add_argument('--data_dir', type=str,
-                      help='Path to the data directory containing aligned face patches.',
-                      default='~/datasets/casia/casia_maxpy_mtcnnalign_182_160')
-  parser.add_argument('--model_def', type=str,
-                      help='Model definition. Points to a module containing the definition of the inference graph.',
-                      default='models.inception_resnet_v2')
-  parser.add_argument('--max_nrof_epochs', type=int,
-                      help='Number of epochs to run.', default=20)
-  parser.add_argument('--batch_size', type=int,
-                      help='Number of images to process in a batch.', default=60)
-  parser.add_argument('--image_size', type=int,
-                      help='Image size (height, width) in pixels.', default=299)
-  parser.add_argument('--people_per_batch', type=int,
-                      help='Number of people per batch.', default=45)
-  parser.add_argument('--images_per_person', type=int,
-                      help='Number of images per person.', default=3)
-  parser.add_argument('--epoch_size', type=int,
-                      help='Number of batches per epoch.', default=100)
-  parser.add_argument('--alpha', type=float,
-                      help='Positive to negative triplet distance margin.', default=0.2)
-  parser.add_argument('--embedding_size', type=int,
-                      help='Dimensionality of the embedding.', default=128)
-  parser.add_argument('--random_crop',
-                      help='Performs random cropping of training images. If false, the center image_size pixels from the training images are used. ' +
-                           'If the size of the images in the data directory is equal to image_size no cropping is performed',
-                      action='store_true')
-  parser.add_argument('--random_flip',
-                      help='Performs random horizontal flipping of training images.', action='store_true')
-  parser.add_argument('--keep_probability', type=float,
-                      help='Keep probability of dropout for the fully connected layer(s).', default=1.0)
-  parser.add_argument('--weight_decay', type=float,
-                      help='L2 weight regularization.', default=0.0)
-  parser.add_argument('--optimizer', type=str, choices=['ADAGRAD', 'ADADELTA', 'ADAM', 'RMSPROP', 'MOM'],
-                      help='The optimization algorithm to use', default='ADAGRAD')
-  parser.add_argument('--learning_rate', type=float,
-                      help='Initial learning rate. If set to a negative value a learning rate ' +
-                           'schedule can be specified in the file "learning_rate_schedule.txt"', default=0.0002)
-  parser.add_argument('--learning_rate_decay_epochs', type=int,
-                      help='Number of epochs between learning rate decay.', default=100)
-  parser.add_argument('--learning_rate_decay_factor', type=float,
-                      help='Learning rate decay factor.', default=1.0)
-  parser.add_argument('--moving_average_decay', type=float,
-                      help='Exponential decay for tracking of training parameters.', default=0.9999)
-  parser.add_argument('--seed', type=int,
-                      help='Random seed.', default=666)
-  parser.add_argument('--learning_rate_schedule_file', type=str,
-                      help='File containing the learning rate schedule that is used when learning_rate is set to to -1.',
-                      default='data/learning_rate_schedule.txt')
-
-  # Parameters for validation on LFW
-  parser.add_argument('--lfw_pairs', type=str,
-                      help='The file containing the pairs to use for validation.', default='data/pairs.txt')
-  parser.add_argument('--lfw_file_ext', type=str,
-                      help='The file extension for the LFW dataset.', default='jpg', choices=['jpg', 'png'])
-  parser.add_argument('--lfw_dir', type=str,
-                      help='Path to the data directory containing aligned face patches.', default='')
-  parser.add_argument('--lfw_nrof_folds', type=int,
-                      help='Number of folds to use for cross validation. Mainly used for testing.', default=10)
-  return parser.parse_args(argv)

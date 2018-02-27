@@ -1,6 +1,6 @@
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
-from inception_resnet_v2 import inception_resnet_v2, inception_resnet_v2_arg_scope
+from src import inception_resnet_v2
 from src import facenet
 import os
 
@@ -9,8 +9,8 @@ def transform(args, pretrained_ckpt, image_size, output_dir, bottleneck_size):
     learning_rate_placeholder = tf.placeholder(tf.float32, name='learning_rate')
     image_batch = tf.placeholder(tf.float32, shape=(None, image_size, image_size, 3))
 
-    with slim.arg_scope(inception_resnet_v2_arg_scope(weight_decay=args.weight_decay)):
-      prelogits, _ = inception_resnet_v2(image_batch, num_classes=bottleneck_size)
+    with slim.arg_scope(inception_resnet_v2.inception_resnet_v2_arg_scope(weight_decay=args.weight_decay)):
+      prelogits, _ = inception_resnet_v2.inception_resnet_v2(image_batch, num_classes=bottleneck_size)
 
     global_step = tf.train.get_or_create_global_step()
     exclude = ['InceptionResnetV2/Logits', 'InceptionResnetV2/AuxLogits']
@@ -42,6 +42,7 @@ def transform(args, pretrained_ckpt, image_size, output_dir, bottleneck_size):
     saver = tf.train.Saver()
     with tf.Session() as sess:
       sess.run(tf.global_variables_initializer())
+
       loader.restore(sess, pretrained_ckpt)
 
       checkpoint_path = os.path.join(output_dir, 'model-%s.ckpt' % bottleneck_size)

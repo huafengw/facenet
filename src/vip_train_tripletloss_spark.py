@@ -27,12 +27,11 @@ def main_fun(argv, ctx):
 if __name__ == '__main__':
   # parse arguments needed by the Spark driver
   import argparse
-  from src import transform_pretrained
   parser = argparse.ArgumentParser()
   parser.add_argument("--epochs", help="number of epochs", type=int, default=200)
   parser.add_argument("--start_from_scratch", help="Start training from pretrained inception model", action="store_true")
   parser.add_argument("--input_data", help="HDFS path to input dataset")
-  parser.add_argument('--num_executor', default=2, type=int, help='The spark executor num')
+  parser.add_argument('--num_executor', default=3, type=int, help='The spark executor num')
   parser.add_argument("--tensorboard", help="launch tensorboard process", action="store_true")
   parser.add_argument("--pretrained_ckpt", help="The pretrained inception model", default='hdfs://bipcluster/user/vincent.wang/facenet/inception_resnet_v2_2016_08_30.ckpt')
   parser.add_argument("--spark_executor_cores", default=4, type=int, help='The spark executor cores')
@@ -40,17 +39,17 @@ if __name__ == '__main__':
   parser.add_argument('--workspace', type=str,
         help='Directory where to write event logs and checkpoints on hdfs.', default='hdfs://bipcluster/user/vincent.wang/facenet')
   parser.add_argument('--weight_decay', type=float,
-        help='L2 weight regularization.', default=0.0)
+        help='L2 weight regularization.', default=0.000002)
   parser.add_argument('--batch_size', type=int,
-        help='Number of images to process in a batch.', default=60)
+        help='Number of images to process in a batch.', default=90)
   parser.add_argument('--image_size', type=int,
         help='Image size (height, width) in pixels.', default=299)
   parser.add_argument('--people_per_batch', type=int,
-        help='Number of people per batch.', default=45)
+        help='Number of people per batch.', default=150)
   parser.add_argument('--images_per_person', type=int,
         help='Number of images per person.', default=3)
   parser.add_argument('--epoch_size', type=int,
-        help='Number of batches per epoch.', default=100)
+        help='Number of batches per epoch.', default=1000)
   parser.add_argument('--alpha', type=float,
         help='Positive to negative triplet distance margin.', default=0.2)
   parser.add_argument('--embedding_size', type=int,
@@ -59,7 +58,7 @@ if __name__ == '__main__':
         help='The optimization algorithm to use', default='ADAGRAD')
   parser.add_argument('--learning_rate', type=float,
         help='Initial learning rate. If set to a negative value a learning rate ' +
-        'schedule can be specified in the file "learning_rate_schedule.txt"', default=0.0002)
+        'schedule can be specified in the file "learning_rate_schedule.txt"', default=0.002)
   parser.add_argument('--learning_rate_decay_epochs', type=int,
         help='Number of epochs between learning rate decay.', default=100)
   parser.add_argument('--learning_rate_decay_factor', type=float,
@@ -73,14 +72,8 @@ if __name__ == '__main__':
   parser.add_argument('--lfw_nrof_folds', type=int,
         help='Number of folds to use for cross validation. Mainly used for testing.', default=10)
 
-
   classpath=os.popen(os.environ["HADOOP_HOME"] + "/bin/hadoop classpath --glob").read()
   args = parser.parse_args()
-
-  checkpoint_dir = args.workspace + "/models"
-  if args.start_from_scratch:
-    print("Transforming the pretrained inception model...")
-    transform_pretrained.transform(args, args.pretrained_ckpt, args.image_size, checkpoint_dir, args.embedding_size)
 
   spark_executor_instances = args.num_executor
   spark_cores_max = spark_executor_instances * args.spark_executor_cores
@@ -102,6 +95,7 @@ if __name__ == '__main__':
 
   print("{0} ===== Start".format(datetime.now().isoformat()))
   sc = SparkContext(conf = conf)
+  # sc.setLogLevel("DEBUG")
   num_executors = int(args.num_executor)
   num_ps = 1
 
