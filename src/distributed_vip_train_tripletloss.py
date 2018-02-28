@@ -212,12 +212,14 @@ def train(server, cluster_spec, args, ctx):
       splits = v.name.split("/")
       if len(splits) > 2 and splits[1] in train_layers:
         var_list.append(v)
-    train_op = facenet.train(total_loss, global_step, args.optimizer,
+    train_op, opt = facenet.train(total_loss, global_step, args.optimizer,
                              learning_rate, args.moving_average_decay, var_list, sync_replicas=args.sync_replicas, replicas_to_aggregate=num_workers)
 
     summary_op = tf.summary.merge_all()
     
     hooks = [tf.train.StopAtStepHook(int(args.epochs) * int(args.epoch_size))]
+    if args.sync_replicas:
+      hooks += [opt.make_session_run_hook(is_chief)]
 
     sess_config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False,
                                  device_filters=['/job:ps', '/job:worker/task:%d' % task_index])

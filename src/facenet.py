@@ -223,7 +223,7 @@ def train(total_loss, global_step, optimizer, learning_rate, moving_average_deca
     with tf.control_dependencies([apply_gradient_op, variables_averages_op]):
         train_op = tf.no_op(name='train')
   
-    return train_op
+    return train_op, opt
 
 def prewhiten(x):
     mean = np.mean(x)

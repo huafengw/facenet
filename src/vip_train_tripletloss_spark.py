@@ -17,11 +17,11 @@ def main_fun(argv, ctx):
   print("argv:", argv)
   sys.argv = argv
 
-  cluster_spec, server = TFNode.start_cluster_server(ctx, num_gpus=1)
+  cluster, server = TFNode.start_cluster_server(ctx, num_gpus=1)
   if job_name == 'ps':
     server.join()
   else:
-    distributed_vip_train_tripletloss.train(server, cluster_spec, argv, ctx)
+    distributed_vip_train_tripletloss.train(server, ctx.cluster_spec, argv, ctx)
 
 
 if __name__ == '__main__':
@@ -59,7 +59,7 @@ if __name__ == '__main__':
         help='The optimization algorithm to use', default='ADAGRAD')
   parser.add_argument('--learning_rate', type=float,
         help='Initial learning rate. If set to a negative value a learning rate ' +
-        'schedule can be specified in the file "learning_rate_schedule.txt"', default=0.002)
+        'schedule can be specified in the file "learning_rate_schedule.txt"', default=0.0002)
   parser.add_argument('--learning_rate_decay_epochs', type=int,
         help='Number of epochs between learning rate decay.', default=100)
   parser.add_argument('--learning_rate_decay_factor', type=float,
