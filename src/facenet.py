@@ -177,7 +177,7 @@ def _add_loss_summaries(total_loss):
   
     return loss_averages_op
 
-def train(total_loss, global_step, optimizer, learning_rate, moving_average_decay, update_gradient_vars, log_histograms=True):
+def train(total_loss, global_step, optimizer, learning_rate, moving_average_decay, update_gradient_vars, log_histograms=True, sync_replicas=False, replicas_to_aggregate=None):
     # Generate moving averages of all losses and associated summaries.
     loss_averages_op = _add_loss_summaries(total_loss)
 
@@ -195,7 +195,10 @@ def train(total_loss, global_step, optimizer, learning_rate, moving_average_deca
             opt = tf.train.MomentumOptimizer(learning_rate, 0.9, use_nesterov=True)
         else:
             raise ValueError('Invalid optimization algorithm')
-    
+
+        if sync_replicas:
+            opt = tf.train.SyncReplicasOptimizer(opt, replicas_to_aggregate=replicas_to_aggregate, total_num_replicas=replicas_to_aggregate, use_locking=False)
+
         grads = opt.compute_gradients(total_loss, update_gradient_vars)
         
     # Apply gradients.
