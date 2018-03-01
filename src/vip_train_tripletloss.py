@@ -33,6 +33,7 @@ import time
 import sys
 import tensorflow as tf
 import numpy as np
+import random
 import importlib
 import itertools
 import argparse
@@ -93,7 +94,8 @@ def main(args):
     src_path,_ = os.path.split(os.path.realpath(__file__))
     facenet.store_revision_info(src_path, log_dir, ' '.join(sys.argv))
 
-    np.random.seed(seed=args.seed)
+    seed = random.SystemRandom().randint(0, 10240)
+    np.random.seed(seed=seed)
     train_set = facenet.get_dataset(args.data_dir)
     
     print('Model directory: %s' % model_dir)
@@ -110,7 +112,7 @@ def main(args):
         
     
     with tf.Graph().as_default():
-        tf.set_random_seed(args.seed)
+        tf.set_random_seed(seed)
 
         # Placeholder for the learning rate
         learning_rate_placeholder = tf.placeholder(tf.float32, name='learning_rate')
@@ -512,8 +514,6 @@ def parse_arguments(argv):
         help='Learning rate decay factor.', default=1.0)
     parser.add_argument('--moving_average_decay', type=float,
         help='Exponential decay for tracking of training parameters.', default=0.9999)
-    parser.add_argument('--seed', type=int,
-        help='Random seed.', default=666)
     parser.add_argument('--learning_rate_schedule_file', type=str,
         help='File containing the learning rate schedule that is used when learning_rate is set to to -1.', default='data/learning_rate_schedule.txt')
 

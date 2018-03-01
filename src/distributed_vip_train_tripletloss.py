@@ -128,7 +128,7 @@ def train(server, cluster_spec, args, ctx):
     print("Transform finished")
 
   seed = random.SystemRandom().randint(0, 10240)
-  print("Random seed: " + seed)
+  print("Random seed: " + str(seed))
   np.random.seed(seed=seed)
   train_set = facenet.get_dataset(data_dir)
 
