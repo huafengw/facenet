@@ -34,7 +34,7 @@ import time
 import tensorflow as tf
 import numpy as np
 import itertools
-import argparse
+import random
 from src import facenet
 
 from tensorflow.python.ops import data_flow_ops
@@ -126,8 +126,10 @@ def train(server, cluster_spec, args, ctx):
     print("Transforming the pretrained inception model...")
     transform_pretrained.transform(args, args.pretrained_ckpt, args.image_size, checkpoint_dir, args.embedding_size)
     print("Transform finished")
-  
-  np.random.seed(seed=args.seed)
+
+  seed = random.SystemRandom().randint(0, 10240)
+  print("Random seed: " + seed)
+  np.random.seed(seed=seed)
   train_set = facenet.get_dataset(data_dir)
 
   print('Model directory: %s' % checkpoint_dir)
@@ -139,7 +141,7 @@ def train(server, cluster_spec, args, ctx):
   val_image_paths, actual_issame = get_paths(val_dir, pairs)
 
   with tf.device(tf.train.replica_device_setter(worker_device="/job:worker/task:%d" % task_index, cluster=cluster_spec)):
-    tf.set_random_seed(args.seed)
+    tf.set_random_seed(seed)
 
     # Placeholder for the learning rate
     learning_rate_placeholder = tf.placeholder(tf.float32, name='learning_rate')

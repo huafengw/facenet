@@ -66,8 +66,6 @@ if __name__ == '__main__':
         help='Learning rate decay factor.', default=1.0)
   parser.add_argument('--moving_average_decay', type=float,
         help='Exponential decay for tracking of training parameters.', default=0.9999)
-  parser.add_argument('--seed', type=int,
-        help='Random seed.', default=666)
   parser.add_argument('--random_flip',
         help='Performs random horizontal flipping of training images.', action='store_true')
   parser.add_argument('--lfw_nrof_folds', type=int,
