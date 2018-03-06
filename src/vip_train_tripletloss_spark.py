@@ -5,7 +5,9 @@ from __future__ import print_function
 from pyspark.context import SparkContext
 from pyspark.conf import SparkConf
 from tensorflowonspark import TFCluster, TFNode
+from src import transform_pretrained
 from datetime import datetime
+import tensorflow as tf
 import os
 
 def main_fun(argv, ctx):
@@ -36,9 +38,10 @@ if __name__ == '__main__':
   parser.add_argument("--tensorboard", help="launch tensorboard process", action="store_true")
   parser.add_argument("--pretrained_ckpt", help="The pretrained inception model", default='hdfs://bipcluster/user/vincent.wang/facenet/inception_resnet_v2_2016_08_30.ckpt')
   parser.add_argument("--spark_executor_cores", default=4, type=int, help='The spark executor cores')
-
   parser.add_argument('--workspace', type=str,
         help='Directory where to write event logs and checkpoints on hdfs.', default='hdfs://bipcluster/user/vincent.wang/facenet')
+  parser.add_argument('--checkpoint_dir', type=str, help='Directory where to write checkpoints on hdfs.')
+
   parser.add_argument('--weight_decay', type=float,
         help='L2 weight regularization.', default=0.000002)
   parser.add_argument('--batch_size', type=int,
@@ -50,13 +53,13 @@ if __name__ == '__main__':
   parser.add_argument('--images_per_person', type=int,
         help='Number of images per person.', default=3)
   parser.add_argument('--epoch_size', type=int,
-        help='Number of batches per epoch.', default=1000)
+        help='Number of batches per epoch.', default=100)
   parser.add_argument('--alpha', type=float,
         help='Positive to negative triplet distance margin.', default=0.2)
   parser.add_argument('--embedding_size', type=int,
         help='Dimensionality of the embedding.', default=128)
   parser.add_argument('--optimizer', type=str, choices=['ADAGRAD', 'ADADELTA', 'ADAM', 'RMSPROP', 'MOM'],
-        help='The optimization algorithm to use', default='ADAGRAD')
+        help='The optimization algorithm to use', default='ADAM')
   parser.add_argument('--learning_rate', type=float,
         help='Initial learning rate. If set to a negative value a learning rate ' +
         'schedule can be specified in the file "learning_rate_schedule.txt"', default=0.0002)

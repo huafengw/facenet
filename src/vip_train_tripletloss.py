@@ -160,7 +160,7 @@ def main(args):
         # prelogits, _ = network.inference(image_batch, args.keep_probability,
         #     phase_train=phase_train_placeholder, bottleneck_layer_size=args.embedding_size,
         #     weight_decay=args.weight_decay)
-        with slim.arg_scope(inception_resnet_v2_arg_scope()):
+        with slim.arg_scope(inception_resnet_v2_arg_scope(weight_decay=args.weight_decay)):
             prelogits, _ = inception_resnet_v2(image_batch, num_classes=args.embedding_size, is_training=phase_train_placeholder)
 
         exclude = ['InceptionResnetV2/Logits', 'InceptionResnetV2/AuxLogits']
@@ -189,7 +189,7 @@ def main(args):
           splits = v.name.split("/")
           if len(splits) > 2 and splits[1] in train_layers:
             var_list.append(v)
-        train_op = facenet.train(total_loss, global_step, args.optimizer,
+        train_op, _ = facenet.train(total_loss, global_step, args.optimizer,
             learning_rate, args.moving_average_decay, var_list)
 
         # Create a saver
@@ -225,6 +225,7 @@ def main(args):
                 step = sess.run(global_step, feed_dict=None)
                 epoch = step // args.epoch_size
                 # Train for one epoch
+                    
                 train(args, sess, train_set, epoch, image_paths_placeholder, labels_placeholder, labels_batch,
                     batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, input_queue, global_step, 
                     embeddings, total_loss, train_op, summary_op, summary_writer, args.learning_rate_schedule_file,
@@ -237,7 +238,7 @@ def main(args):
                 if args.lfw_dir:
                     evaluate(sess, lfw_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder, 
                             batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, actual_issame, args.batch_size, 
-                            args.lfw_nrof_folds, log_dir, step, summary_writer, args.embedding_size)
+                            args.lfw_nrof_folds, log_dir, step, summary_writer, args.embedding_size)                
 
     return model_dir
 

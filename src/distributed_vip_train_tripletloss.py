@@ -111,9 +111,10 @@ def train(server, cluster_spec, args, ctx):
   val_dir = "/tmp/dress/val"
   val_pairs = "/tmp/dress/pairs.txt"
   subdir = datetime.strftime(datetime.now(), '%Y%m%d-%H%M%S')
-
-  checkpoint_dir = args.workspace + "/models/" + subdir
   log_dir = args.workspace + "/logs/" + subdir
+
+  checkpoint_dir = args.checkpoint_dir if args.checkpoint_dir else (args.workspace + "/models/" + subdir)
+
   if task_index == 0:
     if not tf.gfile.Exists(args.workspace):
       tf.gfile.MakeDirs(args.workspace)
@@ -126,9 +127,10 @@ def train(server, cluster_spec, args, ctx):
     print("Transforming the pretrained inception model...")
     transform_pretrained.transform(args, args.pretrained_ckpt, args.image_size, checkpoint_dir, args.embedding_size)
     print("Transform finished")
+    tf.reset_default_graph()
 
   seed = random.SystemRandom().randint(0, 10240)
-  print("Random seed: " + seed)
+  print("Random seed: " + str(seed))
   np.random.seed(seed=seed)
   train_set = facenet.get_dataset(data_dir)
 
@@ -164,8 +166,7 @@ def train(server, cluster_spec, args, ctx):
       for filename in tf.unstack(filenames):
         file_contents = tf.read_file(filename)
         image = tf.image.decode_image(file_contents, channels=3)
-        processed_image = inception_preprocessing.preprocess_image(image, args.image_size, args.image_size,
-                                                                   is_training=True)
+        processed_image = inception_preprocessing.preprocess_image(image, args.image_size, args.image_size, is_training=False)
         # if args.random_crop:
         #     image = tf.random_crop(image, [args.image_size, args.image_size, 3])
         # else:
@@ -237,12 +238,6 @@ def train(server, cluster_spec, args, ctx):
                                            stop_grace_period_secs=30,
                                            save_checkpoint_secs=600) as sess:
       # Training and validation loop
-      print(type(sess), flush=True)
-      print(type(sess._sess), flush=True)
-      print(type(sess._sess._sess), flush=True)
-      print(type(sess._sess._sess._sess), flush=True)
-      print(type(sess._sess._sess._sess._sess), flush=True) 
-      
       summary_writer = tf.summary.FileWriter(log_dir, sess.graph) if is_chief else None
 
       while not sess.should_stop():
@@ -253,7 +248,7 @@ def train(server, cluster_spec, args, ctx):
         if is_chief:
           # checkpoint_path = os.path.join(checkpoint_dir, 'model-%s.ckpt' % "test")
           # saver.save(sess._sess._sess._sess._sess, checkpoint_path, global_step=step, write_meta_graph=False)
-          evaluate(sess, val_image_paths, total_loss, triplet_loss, embeddings, labels_batch, image_paths_placeholder, labels_placeholder,
+          evaluate(sess, val_image_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder,
                    batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op,
                    actual_issame, args.batch_size, args.lfw_nrof_folds, step, summary_writer, args.embedding_size)
 
@@ -329,7 +324,7 @@ def _train(args, sess, dataset, image_paths_placeholder, labels_placeholder, lab
   return step
 
 
-def evaluate(sess, image_paths, loss, triplet_loss, embeddings, labels_batch, image_paths_placeholder, labels_placeholder,
+def evaluate(sess, image_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder,
              batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, actual_issame,
              batch_size, nrof_folds, step, summary_writer, embedding_size):
   start_time = time.time()
@@ -347,11 +342,9 @@ def evaluate(sess, image_paths, loss, triplet_loss, embeddings, labels_batch, im
   summary = tf.Summary()
   for i in xrange(nrof_batches):
     batch_size = min(nrof_images - i * batch_size, batch_size)
-    _loss, _trip_loss, emb, lab = sess.run([loss, triplet_loss, embeddings, labels_batch], feed_dict={batch_size_placeholder: batch_size,
+    emb, lab = sess.run([embeddings, labels_batch], feed_dict={batch_size_placeholder: batch_size,
                                                                learning_rate_placeholder: 0.0,
                                                                phase_train_placeholder: False})
-    summary.value.add(tag='evaluate/loss', simple_value=_loss)
-    summary.value.add(tag='evaluate/triplet_loss', simple_value=_trip_loss)
     emb_array[lab, :] = emb
     label_check_array[lab] = 1
   print('%.3f' % (time.time() - start_time))
