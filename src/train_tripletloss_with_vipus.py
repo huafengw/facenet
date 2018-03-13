@@ -26,8 +26,8 @@ from __future__ import print_function
 
 from datetime import datetime
 import tensorflow.contrib.slim as slim
-from src import vgg_preprocessing
-from src import resnet_v1
+import vgg_preprocessing
+import resnet_v1
 import os.path
 import time
 import sys
@@ -36,7 +36,7 @@ import numpy as np
 import random
 import itertools
 import argparse
-from src import facenet
+import facenet
 import lfw
 
 from tensorflow.python.ops import data_flow_ops
@@ -139,7 +139,7 @@ def main(args):
             for filename in tf.unstack(filenames):
                 file_contents = tf.read_file(filename)
                 image = tf.image.decode_image(file_contents, channels=3)
-                processed_image = vgg_preprocessing.preprocess_image(image, image_size, image_size, is_training=False)
+                processed_image = vgg_preprocessing.preprocess_image(image, image_size, image_size, is_training=False, bgr=True)
                 # if args.random_crop:
                 #     image = tf.random_crop(image, [args.image_size, args.image_size, 3])
                 # else:
@@ -152,7 +152,7 @@ def main(args):
     
         image_batch, labels_batch = tf.train.batch_join(
             images_and_labels, batch_size=batch_size_placeholder, 
-            shapes=[(args.image_size, args.image_size, 3), ()], enqueue_many=True,
+            shapes=[(image_size, image_size, 3), ()], enqueue_many=True,
             capacity=4 * nrof_preprocess_threads * args.batch_size,
             allow_smaller_final_batch=True)
         image_batch = tf.identity(image_batch, 'image_batch')
@@ -161,16 +161,16 @@ def main(args):
 
         # Build the inference graph
         with slim.arg_scope(resnet_v1.resnet_arg_scope(weight_decay=args.weight_decay)):
-            val_logits, _ = resnet_v1.resnet_v1_triplet(image_batch, embedding_size=DIM_HASHCODE, is_training=phase_train_placeholder)
+            val_logits, _ = resnet_v1.resnet_v1_101_triplet(image_batch, num_classes=249, embedding_size=DIM_HASHCODE, is_training=phase_train_placeholder)
 
         loader = tf.train.Saver()
 
-        embeddings = val_logits['triplet_pre_embeddings']
+        embeddings = tf.squeeze(val_logits['triplet_pre_embeddings'], [1, 2], name='feat_embeddings/squeezed')
         global_step = tf.Variable(0, trainable=False)
 
         # embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name='embeddings')
         # Split embeddings into anchor, positive and negative and calculate triplet loss
-        anchor, positive, negative = tf.unstack(tf.reshape(embeddings, [-1,3,args.embedding_size]), 3, 1)
+        anchor, positive, negative = tf.unstack(tf.reshape(embeddings, [-1, 3, DIM_HASHCODE]), 3, 1)
         triplet_loss = facenet.triplet_loss(anchor, positive, negative, args.alpha)
         
         learning_rate = tf.train.exponential_decay(learning_rate_placeholder, global_step,
@@ -182,14 +182,8 @@ def main(args):
         total_loss = tf.add_n([triplet_loss] + regularization_losses, name='total_loss')
 
         # Build a Graph that trains the model with one batch of examples and updates the model parameters
-        train_layers = ['Logits', 'Conv2d_7b_1x1', 'Block8', 'Repeat_2', 'Mixed_7a']
-        var_list = []
-        for v in tf.global_variables():
-          splits = v.name.split("/")
-          if len(splits) > 2 and splits[1] in train_layers:
-            var_list.append(v)
         train_op, _ = facenet.train(total_loss, global_step, args.optimizer,
-            learning_rate, args.moving_average_decay, var_list)
+            learning_rate, args.moving_average_decay, tf.trainable_variables())
 
         # Create a saver
         saver = tf.train.Saver(max_to_keep=3)
@@ -227,7 +221,7 @@ def main(args):
                 train(args, sess, train_set, epoch, image_paths_placeholder, labels_placeholder, labels_batch,
                     batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, input_queue, global_step, 
                     embeddings, total_loss, train_op, summary_op, summary_writer, args.learning_rate_schedule_file,
-                    args.embedding_size, anchor, positive, negative, triplet_loss)
+                    DIM_HASHCODE, anchor, positive, negative, triplet_loss)
 
                 # Save variables and the metagraph if it doesn't exist already
                 save_variables_and_metagraph(sess, saver, summary_writer, model_dir, subdir, step)
@@ -236,7 +230,7 @@ def main(args):
                 if args.validation_dir:
                     evaluate(sess, validation_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder,
                             batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, actual_issame, args.batch_size, 
-                            args.validation_nrof_folds, log_dir, step, summary_writer, args.embedding_size)
+                            args.validation_nrof_folds, log_dir, step, summary_writer, DIM_HASHCODE)
 
     return model_dir
 
@@ -477,8 +471,6 @@ def parse_arguments(argv):
         help='Number of epochs to run.', default=20)
     parser.add_argument('--batch_size', type=int,
         help='Number of images to process in a batch.', default=60)
-    parser.add_argument('--image_size', type=int,
-        help='Image size (height, width) in pixels.', default=299)
     parser.add_argument('--people_per_batch', type=int,
         help='Number of people per batch.', default=45)
     parser.add_argument('--images_per_person', type=int,
@@ -487,8 +479,6 @@ def parse_arguments(argv):
         help='Number of batches per epoch.', default=100)
     parser.add_argument('--alpha', type=float,
         help='Positive to negative triplet distance margin.', default=0.2)
-    parser.add_argument('--embedding_size', type=int,
-        help='Dimensionality of the embedding.', default=128)
     parser.add_argument('--random_crop', 
         help='Performs random cropping of training images. If false, the center image_size pixels from the training images are used. ' +
          'If the size of the images in the data directory is equal to image_size no cropping is performed', action='store_true')
