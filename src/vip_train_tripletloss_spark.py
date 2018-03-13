@@ -48,10 +48,10 @@ if __name__ == '__main__':
         help='Number of images to process in a batch.', default=90)
   parser.add_argument('--image_size', type=int,
         help='Image size (height, width) in pixels.', default=299)
-  parser.add_argument('--people_per_batch', type=int,
-        help='Number of people per batch.', default=150)
-  parser.add_argument('--images_per_person', type=int,
-        help='Number of images per person.', default=3)
+  parser.add_argument('--classes_per_batch', type=int,
+        help='Number of classes per batch.', default=150)
+  parser.add_argument('--images_per_class', type=int,
+        help='Number of images per class.', default=3)
   parser.add_argument('--epoch_size', type=int,
         help='Number of batches per epoch.', default=100)
   parser.add_argument('--alpha', type=float,

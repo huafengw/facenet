@@ -262,11 +262,11 @@ def _train(args, sess, dataset, image_paths_placeholder, labels_placeholder, lab
 
   lr = args.learning_rate
   while batch_number < args.epoch_size:
-    # Sample people randomly from the dataset
-    image_paths, num_per_class = sample_people(dataset, args.people_per_batch, args.images_per_person)
+    # Sample classes randomly from the dataset
+    image_paths, num_per_class = sample_classes(dataset, args.classes_per_batch, args.images_per_class)
     #print('Running forward pass on sampled images: ', flush=True)
     start_time = time.time()
-    nrof_examples = args.people_per_batch * args.images_per_person
+    nrof_examples = args.classes_per_batch * args.images_per_class
     labels_array = np.reshape(np.arange(nrof_examples), (-1, 3))
     image_paths_array = np.reshape(np.expand_dims(np.array(image_paths), 1), (-1, 3))
     sess.run(enqueue_op, feed_dict = {image_paths_placeholder: image_paths_array, labels_placeholder: labels_array})
@@ -283,7 +283,7 @@ def _train(args, sess, dataset, image_paths_placeholder, labels_placeholder, lab
     # Select triplets based on the embeddings
     print('Selecting suitable triplets for training')
     triplets, nrof_random_negs, nrof_triplets = select_triplets(emb_array, num_per_class,
-                                                                image_paths, args.people_per_batch, args.alpha)
+                                                                image_paths, args.classes_per_batch, args.alpha)
     selection_time = time.time() - start_time
     print('(nrof_random_negs, nrof_triplets) = (%d, %d): time=%.3f seconds' %
           (nrof_random_negs, nrof_triplets, selection_time))
@@ -364,7 +364,7 @@ def evaluate(sess, image_paths, embeddings, labels_batch, image_paths_placeholde
   summary_writer.add_summary(summary, step)
 
 
-def select_triplets(embeddings, nrof_images_per_class, image_paths, people_per_batch, alpha):
+def select_triplets(embeddings, nrof_images_per_class, image_paths, classes_per_batch, alpha):
   """ Select the triplets for training
   """
   trip_idx = 0
@@ -379,7 +379,7 @@ def select_triplets(embeddings, nrof_images_per_class, image_paths, people_per_b
   #  latter is a form of hard-negative mining, but it is not as aggressive (and much cheaper) than
   #  choosing the maximally violating example, as often done in structured output learning.
 
-  for i in xrange(people_per_batch):
+  for i in xrange(classes_per_batch):
     nrof_images = int(nrof_images_per_class[i])
     for j in xrange(1, nrof_images):
       a_idx = emb_start_idx + j - 1
@@ -407,8 +407,8 @@ def select_triplets(embeddings, nrof_images_per_class, image_paths, people_per_b
   return triplets, num_trips, len(triplets)
 
 
-def sample_people(dataset, people_per_batch, images_per_person):
-  nrof_images = people_per_batch * images_per_person
+def sample_classes(dataset, classes_per_batch, images_per_class):
+  nrof_images = classes_per_batch * images_per_class
 
   # Sample classes from the dataset
   nrof_classes = len(dataset)
@@ -425,7 +425,7 @@ def sample_people(dataset, people_per_batch, images_per_person):
     nrof_images_in_class = len(dataset[class_index])
     image_indices = np.arange(nrof_images_in_class)
     np.random.shuffle(image_indices)
-    nrof_images_from_class = min(nrof_images_in_class, images_per_person, nrof_images - len(image_paths))
+    nrof_images_from_class = min(nrof_images_in_class, images_per_class, nrof_images - len(image_paths))
     idx = image_indices[0:nrof_images_from_class]
     image_paths_for_class = [dataset[class_index].image_paths[j] for j in idx]
     sampled_class_indices += [class_index] * nrof_images_from_class
