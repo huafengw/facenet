@@ -34,7 +34,6 @@ import sys
 import tensorflow as tf
 import numpy as np
 import random
-import importlib
 import itertools
 import argparse
 import facenet
@@ -53,18 +52,18 @@ def read_pairs(pairs_filename):
     return np.array(pairs)
 
 
-def get_paths(lfw_dir, pairs):
+def get_paths(validation_dir, pairs):
     nrof_skipped_pairs = 0
     path_list = []
     issame_list = []
     for pair in pairs:
         if len(pair) == 3:
-            path0 = os.path.join(lfw_dir, pair[0], pair[1])
-            path1 = os.path.join(lfw_dir, pair[0], pair[2])
+            path0 = os.path.join(validation_dir, pair[0], pair[1])
+            path1 = os.path.join(validation_dir, pair[0], pair[2])
             issame = True
         elif len(pair) == 4:
-            path0 = os.path.join(lfw_dir, pair[0], pair[1])
-            path1 = os.path.join(lfw_dir, pair[2], pair[3])
+            path0 = os.path.join(validation_dir, pair[0], pair[1])
+            path1 = os.path.join(validation_dir, pair[2], pair[3])
             issame = False
         if os.path.exists(path0) and os.path.exists(path1):  # Only add the pair if both paths exist
             path_list += (path0, path1)
@@ -78,7 +77,6 @@ def get_paths(lfw_dir, pairs):
 
 
 def main(args):
-  
     subdir = datetime.strftime(datetime.now(), '%Y%m%d-%H%M%S')
     log_dir = os.path.join(os.path.expanduser(args.logs_base_dir), subdir)
     if not os.path.isdir(log_dir):  # Create the log directory if it doesn't exist
@@ -103,12 +101,12 @@ def main(args):
     if args.pretrained_model:
         print('Pre-trained model: %s' % os.path.expanduser(args.pretrained_model))
     
-    if args.lfw_dir:
-        print('LFW directory: %s' % args.lfw_dir)
+    if args.validation_dir:
+        print('Validation directory: %s' % args.validation_dir)
         # Read the file containing the pairs used for testing
-        pairs = read_pairs(os.path.expanduser(args.lfw_pairs))
+        pairs = read_pairs(os.path.expanduser(args.validation_pairs))
         # Get the paths for the corresponding images
-        lfw_paths, actual_issame = get_paths(os.path.expanduser(args.lfw_dir), pairs)
+        validation_paths, actual_issame = get_paths(os.path.expanduser(args.validation_dir), pairs)
         
     
     with tf.Graph().as_default():
@@ -165,9 +163,11 @@ def main(args):
         with slim.arg_scope(inception_resnet_v2_arg_scope(weight_decay=args.weight_decay)):
             prelogits, _ = inception_resnet_v2(image_batch, num_classes=args.embedding_size, is_training=phase_train_placeholder)
 
-        exclude = ['InceptionResnetV2/Logits', 'InceptionResnetV2/AuxLogits']
-        variables_to_restore = slim.get_variables_to_restore(exclude=exclude)
-        loader = tf.train.Saver(variables_to_restore)
+        loader = None
+        if args.transfer_learning:
+          exclude = ['InceptionResnetV2/Logits', 'InceptionResnetV2/AuxLogits']
+          variables_to_restore = slim.get_variables_to_restore(exclude=exclude)
+          loader = tf.train.Saver(variables_to_restore)
 
         global_step = tf.Variable(0, trainable=False)
 
@@ -194,10 +194,12 @@ def main(args):
         train_op, _ = facenet.train(total_loss, global_step, args.optimizer,
             learning_rate, args.moving_average_decay, var_list)
 
+        if not loader:
+          loader = tf.train.Saver()
+
         # Create a saver
-        # loader = tf.train.Saver()
         saver = tf.train.Saver(max_to_keep=3)
-        #train_op = facenet.train(total_loss, global_step, args.optimizer, 
+        #train_op = facenet.train(total_loss, global_step, args.optimizer,
         #    learning_rate, args.moving_average_decay, tf.global_variables())
 
         # Build the summary operation based on the TF collection of Summaries.
@@ -236,11 +238,11 @@ def main(args):
                 # Save variables and the metagraph if it doesn't exist already
                 save_variables_and_metagraph(sess, saver, summary_writer, model_dir, subdir, step)
 
-                # Evaluate on LFW
-                if args.lfw_dir:
-                    evaluate(sess, lfw_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder, 
+                # Evaluate on validation data set
+                if args.validation_dir:
+                    evaluate(sess, validation_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder,
                             batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, actual_issame, args.batch_size, 
-                            args.lfw_nrof_folds, log_dir, step, summary_writer, args.embedding_size)                
+                            args.validation_nrof_folds, log_dir, step, summary_writer, args.embedding_size)
 
     return model_dir
 
@@ -391,7 +393,7 @@ def evaluate(sess, image_paths, embeddings, labels_batch, image_paths_placeholde
         nrof_folds, log_dir, step, summary_writer, embedding_size):
     start_time = time.time()
     # Run forward pass to calculate embeddings
-    print('Running forward pass on LFW images: ', end='')
+    print('Running forward pass on test images: ', end='')
     
     nrof_images = len(actual_issame)*2
     assert(len(image_paths)==nrof_images)
@@ -415,16 +417,15 @@ def evaluate(sess, image_paths, embeddings, labels_batch, image_paths_placeholde
     
     print('Accuracy: %1.3f+-%1.3f' % (np.mean(accuracy), np.std(accuracy)))
     print('Validation rate: %2.5f+-%2.5f @ FAR=%2.5f' % (val, val_std, far))
-    lfw_time = time.time() - start_time
+    validation_time = time.time() - start_time
     # Add validation loss and accuracy to summary
     summary = tf.Summary()
     #pylint: disable=maybe-no-member
-    summary.value.add(tag='lfw/accuracy', simple_value=np.mean(accuracy))
-    summary.value.add(tag='lfw/val_rate', simple_value=val)
-    summary.value.add(tag='time/lfw', simple_value=lfw_time)
+    summary.value.add(tag='validation/accuracy', simple_value=np.mean(accuracy))
+    summary.value.add(tag='validation/val_rate', simple_value=val)
+    summary.value.add(tag='time/validate', simple_value=validation_time)
     summary_writer.add_summary(summary, step)
-    with open(os.path.join(log_dir,'lfw_result.txt'),'at') as f:
-        f.write('%d\t%.5f\t%.5f\n' % (step, np.mean(accuracy), val))
+
 
 def save_variables_and_metagraph(sess, saver, summary_writer, model_dir, model_name, step):
     # Save the model checkpoint
@@ -465,8 +466,10 @@ def get_learning_rate_from_file(filename, epoch):
 
 def parse_arguments(argv):
     parser = argparse.ArgumentParser()
-    
-    parser.add_argument('--logs_base_dir', type=str, 
+
+    parser.add_argument('--transfer_learning',
+        help='Whether to use a model checkpoint that trained on a different data set, like ImageNet', action='store_true')
+    parser.add_argument('--logs_base_dir', type=str,
         help='Directory where to write event logs.', default='~/logs/facenet')
     parser.add_argument('--models_base_dir', type=str,
         help='Directory where to write trained models and checkpoints.', default='~/models/facenet')
@@ -475,10 +478,7 @@ def parse_arguments(argv):
     parser.add_argument('--pretrained_model', type=str,
         help='Load a pretrained model before training starts.')
     parser.add_argument('--data_dir', type=str,
-        help='Path to the data directory containing aligned face patches.',
-        default='~/datasets/casia/casia_maxpy_mtcnnalign_182_160')
-    parser.add_argument('--model_def', type=str,
-        help='Model definition. Points to a module containing the definition of the inference graph.', default='models.inception_resnet_v2')
+        help='Path to the data directory containing aligned face patches.')
     parser.add_argument('--max_nrof_epochs', type=int,
         help='Number of epochs to run.', default=20)
     parser.add_argument('--batch_size', type=int,
@@ -518,14 +518,12 @@ def parse_arguments(argv):
     parser.add_argument('--learning_rate_schedule_file', type=str,
         help='File containing the learning rate schedule that is used when learning_rate is set to to -1.', default='data/learning_rate_schedule.txt')
 
-    # Parameters for validation on LFW
-    parser.add_argument('--lfw_pairs', type=str,
+    # Parameters for validation
+    parser.add_argument('--validation_pairs', type=str,
         help='The file containing the pairs to use for validation.', default='data/pairs.txt')
-    parser.add_argument('--lfw_file_ext', type=str,
-        help='The file extension for the LFW dataset.', default='jpg', choices=['jpg', 'png'])
-    parser.add_argument('--lfw_dir', type=str,
-        help='Path to the data directory containing aligned face patches.', default='')
-    parser.add_argument('--lfw_nrof_folds', type=int,
+    parser.add_argument('--validation_dir', type=str,
+        help='Path to the data directory containing test images.', default='')
+    parser.add_argument('--validation_nrof_folds', type=int,
         help='Number of folds to use for cross validation. Mainly used for testing.', default=10)
     return parser.parse_args(argv)
   
