@@ -31,7 +31,7 @@ if __name__ == '__main__':
   import argparse
   parser = argparse.ArgumentParser()
   parser.add_argument("--epochs", help="number of epochs", type=int, default=200)
-  parser.add_argument("--start_from_scratch", help="Start training from pretrained inception model", action="store_true")
+  parser.add_argument("--transfer_learning", help="Start training from pretrained inception model", action="store_true")
   parser.add_argument("--sync_replicas", help="Use SyncReplicasOptimizer", action="store_true")
   parser.add_argument("--input_data", help="HDFS path to input dataset")
   parser.add_argument('--num_executor', default=3, type=int, help='The spark executor num')

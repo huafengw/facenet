@@ -123,7 +123,7 @@ def train(server, cluster_spec, args, ctx):
     if not tf.gfile.Exists(log_dir):
         tf.gfile.MakeDirs(log_dir)
 
-  if is_chief and args.start_from_scratch:
+  if is_chief and args.transfer_learning:
     print("Transforming the pretrained inception model...")
     transform_pretrained.transform(args, args.pretrained_ckpt, args.image_size, checkpoint_dir, args.embedding_size)
     print("Transform finished")
