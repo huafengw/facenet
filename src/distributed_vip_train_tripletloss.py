@@ -155,10 +155,6 @@ def train(server, cluster_spec, args, ctx):
         file_contents = tf.read_file(filename)
         image = tf.image.decode_image(file_contents, channels=3)
         processed_image = inception_preprocessing.preprocess_image(image, args.image_size, args.image_size, is_training=False)
-        # if args.random_crop:
-        #     image = tf.random_crop(image, [args.image_size, args.image_size, 3])
-        # else:
-        #     image = tf.image.resize_image_with_crop_or_pad(image, args.image_size, args.image_size)
         if args.random_flip:
           processed_image = tf.image.random_flip_left_right(processed_image)
 
