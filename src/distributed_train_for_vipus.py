@@ -26,9 +26,8 @@ from __future__ import print_function
 
 from datetime import datetime
 import tensorflow.contrib.slim as slim
-from src import transform_pretrained
-from src import inception_preprocessing
-from src.inception_resnet_v2 import inception_resnet_v2, inception_resnet_v2_arg_scope
+from src import vgg_preprocessing
+from src import resnet_v1
 import os.path
 import time
 import tensorflow as tf
@@ -111,12 +110,6 @@ def train(server, cluster_spec, args, ctx):
     if not tf.gfile.Exists(log_dir):
         tf.gfile.MakeDirs(log_dir)
 
-  if is_chief and args.transfer_learning:
-    print("Transforming the pretrained inception model...")
-    transform_pretrained.transform(args, args.pretrained_ckpt, args.image_size, checkpoint_dir, args.embedding_size)
-    print("Transform finished")
-    tf.reset_default_graph()
-
   seed = random.SystemRandom().randint(0, 10240)
   print("Random seed: " + str(seed))
   np.random.seed(seed=seed)
@@ -154,11 +147,7 @@ def train(server, cluster_spec, args, ctx):
       for filename in tf.unstack(filenames):
         file_contents = tf.read_file(filename)
         image = tf.image.decode_image(file_contents, channels=3)
-        processed_image = inception_preprocessing.preprocess_image(image, args.image_size, args.image_size, is_training=False)
-        # if args.random_crop:
-        #     image = tf.random_crop(image, [args.image_size, args.image_size, 3])
-        # else:
-        #     image = tf.image.resize_image_with_crop_or_pad(image, args.image_size, args.image_size)
+        processed_image = vgg_preprocessing.preprocess_image(image, args.image_size, args.image_size, is_training=False)
         if args.random_flip:
           processed_image = tf.image.random_flip_left_right(processed_image)
 
@@ -174,13 +163,12 @@ def train(server, cluster_spec, args, ctx):
     image_batch = tf.identity(image_batch, 'input')
     labels_batch = tf.identity(labels_batch, 'label_batch')
 
-    with slim.arg_scope(inception_resnet_v2_arg_scope(weight_decay=args.weight_decay)):
-      prelogits, _ = inception_resnet_v2(image_batch, num_classes=args.embedding_size,
-                                         is_training=phase_train_placeholder)
+    with slim.arg_scope(resnet_v1.resnet_arg_scope(weight_decay=args.weight_decay)):
+      val_logits, _ = resnet_v1.resnet_v1_101_triplet(image_batch, embedding_size=args.embedding_size, is_training=phase_train_placeholder)
 
     global_step = tf.train.get_or_create_global_step()
 
-    embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name='embeddings')
+    embeddings = tf.squeeze(val_logits['triplet_pre_embeddings'], [1, 2], name='feat_embeddings/squeezed')
     # Split embeddings into anchor, positive and negative and calculate triplet loss
     anchor, positive, negative = tf.unstack(tf.reshape(embeddings, [-1, 3, args.embedding_size]), 3, 1)
     triplet_loss = facenet.triplet_loss(anchor, positive, negative, args.alpha)
@@ -196,15 +184,8 @@ def train(server, cluster_spec, args, ctx):
     tf.summary.scalar('triplet_loss', triplet_loss)
     tf.summary.scalar('total_losses', total_loss)
 
-    # Build a Graph that trains the model with one batch of examples and updates the model parameters
-    train_layers = ['Logits', 'Conv2d_7b_1x1', 'Block8', 'Repeat_2', 'Mixed_7a']
-    var_list = []
-    for v in tf.global_variables():
-      splits = v.name.split("/")
-      if len(splits) > 2 and splits[1] in train_layers:
-        var_list.append(v)
     train_op, opt = facenet.train(total_loss, global_step, args.optimizer,
-                             learning_rate, args.moving_average_decay, var_list, sync_replicas=args.sync_replicas, replicas_to_aggregate=num_workers)
+       learning_rate, args.moving_average_decay, tf.trainable_variables(), sync_replicas=args.sync_replicas, replicas_to_aggregate=num_workers)
 
     summary_op = tf.summary.merge_all()
     

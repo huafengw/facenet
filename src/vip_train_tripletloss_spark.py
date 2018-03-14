@@ -5,13 +5,13 @@ from __future__ import print_function
 from pyspark.context import SparkContext
 from pyspark.conf import SparkConf
 from tensorflowonspark import TFCluster, TFNode
-from src import transform_pretrained
 from datetime import datetime
-import tensorflow as tf
+
 import os
 
 def main_fun(argv, ctx):
   from src import distributed_vip_train_tripletloss
+  from src import distributed_train_for_vipus
   import sys
 
   job_name = ctx.job_name
@@ -23,17 +23,22 @@ def main_fun(argv, ctx):
   if job_name == 'ps':
     server.join()
   else:
-    distributed_vip_train_tripletloss.train(server, ctx.cluster_spec, argv, ctx)
+    if argv.model == 'FACENET':
+      distributed_vip_train_tripletloss.train(server, ctx.cluster_spec, argv, ctx)
+    elif argv.model == 'VIPUS':
+      distributed_train_for_vipus.train(server, ctx.cluster_spec, argv, ctx)
 
 
 if __name__ == '__main__':
   # parse arguments needed by the Spark driver
   import argparse
   parser = argparse.ArgumentParser()
+  parser.add_argument("--model", type=str, choices=['FACENET', 'VIPUS'],
+        help='The model to use', default='FACENET')
   parser.add_argument("--epochs", help="number of epochs", type=int, default=200)
   parser.add_argument("--transfer_learning", help="Start training from pretrained inception model", action="store_true")
   parser.add_argument("--sync_replicas", help="Use SyncReplicasOptimizer", action="store_true")
-  parser.add_argument("--input_data", help="HDFS path to input dataset")
+  parser.add_argument("--local_data_path", type=str, help="The local fs path of input dataset")
   parser.add_argument('--num_executor', default=3, type=int, help='The spark executor num')
   parser.add_argument("--tensorboard", help="launch tensorboard process", action="store_true")
   parser.add_argument("--pretrained_ckpt", help="The pretrained inception model", default='hdfs://bipcluster/user/vincent.wang/facenet/inception_resnet_v2_2016_08_30.ckpt')
@@ -41,6 +46,7 @@ if __name__ == '__main__':
   parser.add_argument('--workspace', type=str,
         help='Directory where to write event logs and checkpoints on hdfs.', default='hdfs://bipcluster/user/vincent.wang/facenet')
   parser.add_argument('--checkpoint_dir', type=str, help='Directory where to write checkpoints on hdfs.')
+
 
   parser.add_argument('--weight_decay', type=float,
         help='L2 weight regularization.', default=0.000002)

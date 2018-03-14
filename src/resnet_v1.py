@@ -390,15 +390,15 @@ def resnet_v1_triplet(inputs,
                     # Global average pooling.
                     net_global_pool = tf.reduce_mean(net, [1, 2], name='pool5', keep_dims=True)
 
-                net_prob = slim.conv2d(net_global_pool, num_classes, [1, 1], activation_fn=None, normalizer_fn=None,
-                                       scope='logits')
+                # net_prob = slim.conv2d(net_global_pool, num_classes, [1, 1], activation_fn=None, normalizer_fn=None,
+                #                       scope='logits')
 
                 # Convert end_points_collection into a dictionary of end_points.
                 logits = dict()
                 end_point = 'mutli_task'
                 with tf.variable_scope(end_point):
-                    with tf.variable_scope('classification'):
-                        logits["cls_logits"] = net_prob
+                    # with tf.variable_scope('classification'):
+                    #    logits["cls_logits"] = net_prob
                     with tf.variable_scope('triplet_embeddings'):
                         feat_embeddings = slim.conv2d(net_global_pool, embedding_size, [1, 1],
                                                       activation_fn=tf.nn.sigmoid,

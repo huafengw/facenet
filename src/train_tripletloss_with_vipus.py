@@ -161,7 +161,7 @@ def main(args):
 
         # Build the inference graph
         with slim.arg_scope(resnet_v1.resnet_arg_scope(weight_decay=args.weight_decay)):
-            val_logits, _ = resnet_v1.resnet_v1_101_triplet(image_batch, num_classes=249, embedding_size=DIM_HASHCODE, is_training=phase_train_placeholder)
+            val_logits, _ = resnet_v1.resnet_v1_101_triplet(image_batch, embedding_size=DIM_HASHCODE, is_training=phase_train_placeholder)
 
         loader = tf.train.Saver()
 
