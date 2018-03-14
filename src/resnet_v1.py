@@ -61,7 +61,7 @@ from __future__ import print_function
 
 import tensorflow as tf
 
-import resnet_utils
+from src import resnet_utils
 
 resnet_arg_scope = resnet_utils.resnet_arg_scope
 slim = tf.contrib.slim

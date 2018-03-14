@@ -110,6 +110,11 @@ def train(server, cluster_spec, args, ctx):
     if not tf.gfile.Exists(log_dir):
         tf.gfile.MakeDirs(log_dir)
 
+  if is_chief and args.transfer_learning:
+    files = tf.gfile.ListDirectory(args.pretrained_ckpt)
+    for file in files:
+      tf.gfile.Copy(os.path.join(args.pretrained_ckpt, file), os.path.join(checkpoint_dir, file))
+
   seed = random.SystemRandom().randint(0, 10240)
   print("Random seed: " + str(seed))
   np.random.seed(seed=seed)
@@ -147,7 +152,7 @@ def train(server, cluster_spec, args, ctx):
       for filename in tf.unstack(filenames):
         file_contents = tf.read_file(filename)
         image = tf.image.decode_image(file_contents, channels=3)
-        processed_image = vgg_preprocessing.preprocess_image(image, args.image_size, args.image_size, is_training=False)
+        processed_image = vgg_preprocessing.preprocess_image(image, args.image_size, args.image_size, is_training=False, bgr=True)
         if args.random_flip:
           processed_image = tf.image.random_flip_left_right(processed_image)
 
@@ -166,6 +171,7 @@ def train(server, cluster_spec, args, ctx):
     with slim.arg_scope(resnet_v1.resnet_arg_scope(weight_decay=args.weight_decay)):
       val_logits, _ = resnet_v1.resnet_v1_101_triplet(image_batch, embedding_size=args.embedding_size, is_training=phase_train_placeholder)
 
+    loader = tf.train.Saver()
     global_step = tf.train.get_or_create_global_step()
 
     embeddings = tf.squeeze(val_logits['triplet_pre_embeddings'], [1, 2], name='feat_embeddings/squeezed')
@@ -200,14 +206,14 @@ def train(server, cluster_spec, args, ctx):
     with tf.train.MonitoredTrainingSession(master=server.target,
                                            is_chief=is_chief,
                                            config=sess_config,
-                                           checkpoint_dir=checkpoint_dir,
                                            hooks=hooks,
                                            save_summaries_steps=None,
                                            save_summaries_secs=None,
-                                           stop_grace_period_secs=30,
-                                           save_checkpoint_secs=600) as sess:
+                                           stop_grace_period_secs=30) as sess:
       # Training and validation loop
       summary_writer = tf.summary.FileWriter(log_dir, sess.graph) if is_chief else None
+      if is_chief:
+        loader.restore(sess, args.pretrained_ckpt)
 
       while not sess.should_stop():
         # Train for one epoch

@@ -5,6 +5,7 @@ zip -r triplet.zip src
 spark-submit \
 --py-files triplet.zip \
 src/vip_train_tripletloss_spark.py \
+--transfer_learning \
 --model VIPUS \
 --local_data_path /home/mlp/training_data/vip_dresses \
 --num_executor 10 \
