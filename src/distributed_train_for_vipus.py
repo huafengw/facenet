@@ -197,6 +197,7 @@ def train(server, cluster_spec, args, ctx):
        learning_rate, args.moving_average_decay, var_list, sync_replicas=args.sync_replicas, replicas_to_aggregate=num_workers)
 
     summary_op = tf.summary.merge_all()
+    saver = tf.train.Saver()
     
     hooks = [tf.train.StopAtStepHook(int(args.epochs) * int(args.epoch_size))]
     if args.sync_replicas:
@@ -205,6 +206,7 @@ def train(server, cluster_spec, args, ctx):
     sess_config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False,
                                  device_filters=['/job:ps', '/job:worker/task:%d' % task_index])
     #sess_config.operation_timeout_in_ms=80000
+    save_path = os.path.join(checkpoint_dir, "model.ckpt")
     
     with tf.train.MonitoredTrainingSession(master=server.target,
                                            is_chief=is_chief,
@@ -226,6 +228,7 @@ def train(server, cluster_spec, args, ctx):
           evaluate(sess, val_image_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder,
                    batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op,
                    actual_issame, args.batch_size, args.lfw_nrof_folds, step, summary_writer, args.embedding_size)
+          saver.save(sess, save_path, global_step = step)
         # Train for one epoch
         step = _train(args, sess, train_set, image_paths_placeholder, labels_placeholder, labels_batch,
                batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, input_queue,
