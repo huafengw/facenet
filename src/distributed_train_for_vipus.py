@@ -76,12 +76,12 @@ def get_paths(lfw_dir, pairs):
 
 def _evaluate(embeddings, actual_issame, nrof_folds=10):
     # Calculate evaluation metrics
-    thresholds = np.arange(8, 12, 0.01)
+    thresholds = np.arange(0, 4, 0.01)
     embeddings1 = embeddings[0::2]
     embeddings2 = embeddings[1::2]
     tpr, fpr, accuracy = facenet.calculate_roc(thresholds, embeddings1, embeddings2,
                                                np.asarray(actual_issame), nrof_folds=nrof_folds)
-    thresholds = np.arange(8, 12, 0.001)
+    thresholds = np.arange(0, 4, 0.001)
     val, val_std, far = facenet.calculate_val(thresholds, embeddings1, embeddings2,
                                               np.asarray(actual_issame), 1e-3, nrof_folds=nrof_folds)
     return tpr, fpr, accuracy, val, val_std, far
@@ -109,11 +109,6 @@ def train(server, cluster_spec, args, ctx):
       tf.gfile.MakeDirs(checkpoint_dir)
     if not tf.gfile.Exists(log_dir):
         tf.gfile.MakeDirs(log_dir)
-
-  if is_chief and args.transfer_learning:
-    files = tf.gfile.ListDirectory(args.pretrained_ckpt)
-    for file in files:
-      tf.gfile.Copy(os.path.join(args.pretrained_ckpt, file), os.path.join(checkpoint_dir, file))
 
   seed = random.SystemRandom().randint(0, 10240)
   print("Random seed: " + str(seed))
@@ -175,6 +170,7 @@ def train(server, cluster_spec, args, ctx):
     global_step = tf.train.get_or_create_global_step()
 
     embeddings = tf.squeeze(val_logits['triplet_pre_embeddings'], [1, 2], name='feat_embeddings/squeezed')
+    embeddings = tf.nn.l2_normalize(embeddings, 1, 1e-10, name='embeddings')
     # Split embeddings into anchor, positive and negative and calculate triplet loss
     anchor, positive, negative = tf.unstack(tf.reshape(embeddings, [-1, 3, args.embedding_size]), 3, 1)
     triplet_loss = facenet.triplet_loss(anchor, positive, negative, args.alpha)
@@ -190,8 +186,15 @@ def train(server, cluster_spec, args, ctx):
     tf.summary.scalar('triplet_loss', triplet_loss)
     tf.summary.scalar('total_losses', total_loss)
 
+    train_layers = ['logits', 'mutli_task']
+    var_list = []
+    for v in tf.global_variables():
+      splits = v.name.split("/")
+      if len(splits) > 2 and splits[1] in train_layers:
+        var_list.append(v)
+    
     train_op, opt = facenet.train(total_loss, global_step, args.optimizer,
-       learning_rate, args.moving_average_decay, tf.trainable_variables(), sync_replicas=args.sync_replicas, replicas_to_aggregate=num_workers)
+       learning_rate, args.moving_average_decay, var_list, sync_replicas=args.sync_replicas, replicas_to_aggregate=num_workers)
 
     summary_op = tf.summary.merge_all()
     
@@ -215,17 +218,18 @@ def train(server, cluster_spec, args, ctx):
       if is_chief:
         loader.restore(sess, args.pretrained_ckpt)
 
+      step = 0  
       while not sess.should_stop():
-        # Train for one epoch
-        step = _train(args, sess, train_set, image_paths_placeholder, labels_placeholder, labels_batch,
-               batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, input_queue,
-               global_step, embeddings, total_loss, train_op, args.embedding_size, triplet_loss, summary_op, summary_writer)
         if is_chief:
           # checkpoint_path = os.path.join(checkpoint_dir, 'model-%s.ckpt' % "test")
           # saver.save(sess._sess._sess._sess._sess, checkpoint_path, global_step=step, write_meta_graph=False)
           evaluate(sess, val_image_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder,
                    batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op,
                    actual_issame, args.batch_size, args.lfw_nrof_folds, step, summary_writer, args.embedding_size)
+        # Train for one epoch
+        step = _train(args, sess, train_set, image_paths_placeholder, labels_placeholder, labels_batch,
+               batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, input_queue,
+               global_step, embeddings, total_loss, train_op, args.embedding_size, triplet_loss, summary_op, summary_writer)
 
   return checkpoint_dir
 
