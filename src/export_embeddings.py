@@ -40,7 +40,7 @@ def preprocess(filepath, image_size):
 
 
 def main(args):
-  output_file = os.path.join(args.output_dir, 'result.txt')
+  output_file = os.path.join(args.output_dir, 'result.pkl')
   print('Model checkpoint: %s' % args.ckpt_path)
   print('Test data directory: %s' % args.test_images_dir)
   print('Output file: %s' % output_file)
