@@ -199,7 +199,7 @@ def train(server, cluster_spec, args, ctx):
     summary_op = tf.summary.merge_all()
     saver = tf.train.Saver()
     
-    hooks = [tf.train.StopAtStepHook(int(args.epochs) * int(args.epoch_size))]
+    hooks = []
     if args.sync_replicas:
       hooks += [opt.make_session_run_hook(is_chief)]
 
@@ -220,15 +220,15 @@ def train(server, cluster_spec, args, ctx):
       if is_chief:
         loader.restore(sess, args.pretrained_ckpt)
 
-      step = 0  
-      while not sess.should_stop():
+      step = 0
+      while True:
         if is_chief:
           # checkpoint_path = os.path.join(checkpoint_dir, 'model-%s.ckpt' % "test")
           # saver.save(sess._sess._sess._sess._sess, checkpoint_path, global_step=step, write_meta_graph=False)
           evaluate(sess, val_image_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder,
                    batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op,
                    actual_issame, args.batch_size, args.lfw_nrof_folds, step, summary_writer, args.embedding_size)
-          saver.save(sess, save_path, global_step = step)
+          saver.save(sess._sess._sess._sess._sess, save_path, global_step = step)
         # Train for one epoch
         step = _train(args, sess, train_set, image_paths_placeholder, labels_placeholder, labels_batch,
                batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op, input_queue,

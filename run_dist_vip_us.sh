@@ -16,4 +16,5 @@ src/vip_train_tripletloss_spark.py \
 --image_size 224 \
 --embedding_size 2048 \
 --alpha 0.4 \
+--learning_rate_decay_factor 0.9 \
 --pretrained_ckpt hdfs://bipcluster/user/vincent.wang/tensorflow_model/upperbody_clothes/v0.2.1/model.ckpt
