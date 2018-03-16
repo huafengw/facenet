@@ -26,7 +26,6 @@ from __future__ import print_function
 
 from datetime import datetime
 import tensorflow.contrib.slim as slim
-from src import transform_pretrained
 from src import inception_preprocessing
 from src.inception_resnet_v2 import inception_resnet_v2, inception_resnet_v2_arg_scope
 import os.path
@@ -113,7 +112,7 @@ def train(server, cluster_spec, args, ctx):
 
   if is_chief and args.transfer_learning:
     print("Transforming the pretrained inception model...")
-    transform_pretrained.transform(args, args.pretrained_ckpt, args.image_size, checkpoint_dir, args.embedding_size)
+    #transform_pretrained.transform(args, args.pretrained_ckpt, args.image_size, checkpoint_dir, args.embedding_size)
     print("Transform finished")
     tf.reset_default_graph()
 
