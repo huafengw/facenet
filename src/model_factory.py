@@ -41,8 +41,13 @@ class VipUSModel(Model):
   def inference_function(self):
     return resnet_v1.resnet_v1_101_triplet
 
+
   def tweak_pretrained_model(self, args, pretrained_ckpt, image_size, checkpoint_dir, embedding_size):
-    pass
+    parent_dir = pretrained_ckpt.rsplit('/', 1)[0]
+    files = tf.gfile.ListDirectory(parent_dir)
+    for file in files:
+      tf.gfile.Copy(parent_dir + '/' + file, checkpoint_dir + "/" + file)
+
 
   def filter_variables_to_train(self, variables):
     train_layers = ['logits', 'mutli_task']
@@ -92,7 +97,7 @@ class InceptionImageNetModel(Model):
                                                                is_training=phase_train_placeholder)
 
       exclude = ['InceptionResnetV2/Logits', 'InceptionResnetV2/AuxLogits']
-      variables_to_restore = self.get_variables_to_restore(exclude=exclude)
+      variables_to_restore = slim.get_variables_to_restore(exclude=exclude)
       loader = tf.train.Saver(variables_to_restore)
 
       global_step = tf.train.get_or_create_global_step()

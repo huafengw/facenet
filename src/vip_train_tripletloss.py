@@ -29,7 +29,8 @@ import tensorflow.contrib.slim as slim
 import os.path
 import time
 import sys
-sys.path.insert(0, 'src')
+sys.path.append(".")
+sys.path.append("..")
 import tensorflow as tf
 import numpy as np
 import random
@@ -75,6 +76,14 @@ def get_paths(validation_dir, pairs):
         print('Skipped %d image pairs' % nrof_skipped_pairs)
 
     return path_list, issame_list
+
+
+def get_ckpt_file(ckpt_dir):
+    ckpt = tf.train.get_checkpoint_state(ckpt_dir)
+    if ckpt and ckpt.model_checkpoint_path:
+        ckpt_file = os.path.basename(ckpt.model_checkpoint_path)
+        return ckpt_file
+    return None
 
 
 def main(args):
@@ -204,10 +213,12 @@ def main(args):
         tf.train.start_queue_runners(coord=coord, sess=sess)
 
         with sess.as_default():
-
             if args.pretrained_model:
-                print('Restoring pretrained model: %s' % args.pretrained_model)
-                loader.restore(sess, os.path.expanduser(args.pretrained_model))
+                ckpt = get_ckpt_file(model_dir)
+                if ckpt:
+                  ckpt_path = model_dir + '/' + ckpt
+                  print('Restoring pretrained model: %s' % ckpt_path)
+                  loader.restore(sess, os.path.expanduser(ckpt_path))
 
             # Training and validation loop
             epoch = 0
