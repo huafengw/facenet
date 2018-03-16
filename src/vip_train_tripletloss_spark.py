@@ -10,8 +10,7 @@ from datetime import datetime
 import os
 
 def main_fun(argv, ctx):
-  from src import facenet_distributed_train
-  from src import vipus_distributed_train
+  from src import distributed_train
   import sys
 
   job_name = ctx.job_name
@@ -23,10 +22,7 @@ def main_fun(argv, ctx):
   if job_name == 'ps':
     server.join()
   else:
-    if argv.model == 'FACENET':
-      facenet_distributed_train.train(server, ctx.cluster_spec, argv, ctx)
-    elif argv.model == 'VIPUS':
-      vipus_distributed_train.train(server, ctx.cluster_spec, argv, ctx)
+    distributed_train.train(server, ctx.cluster_spec, argv, ctx)
 
 
 if __name__ == '__main__':

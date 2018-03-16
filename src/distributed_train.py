@@ -26,8 +26,6 @@ from __future__ import print_function
 
 from datetime import datetime
 import tensorflow.contrib.slim as slim
-from src import vgg_preprocessing
-from src import resnet_v1
 import os.path
 import time
 import tensorflow as tf
@@ -35,6 +33,7 @@ import numpy as np
 import itertools
 import random
 from src import facenet
+from src import model_factory
 
 from tensorflow.python.ops import data_flow_ops
 
@@ -88,6 +87,7 @@ def _evaluate(embeddings, actual_issame, nrof_folds=10):
 
 
 def train(server, cluster_spec, args, ctx):
+  model = model_factory.getModel(args.model)
   task_index = ctx.task_index
   num_workers = len(cluster_spec['worker'])
   is_chief = task_index == 0
@@ -109,6 +109,9 @@ def train(server, cluster_spec, args, ctx):
       tf.gfile.MakeDirs(checkpoint_dir)
     if not tf.gfile.Exists(log_dir):
         tf.gfile.MakeDirs(log_dir)
+
+  if is_chief and args.transfer_learning:
+    model.tweak_pretrained_model(args, args.pretrained_ckpt, args.image_size, checkpoint_dir, args.embedding_size)
 
   seed = random.SystemRandom().randint(0, 10240)
   print("Random seed: " + str(seed))
@@ -141,13 +144,14 @@ def train(server, cluster_spec, args, ctx):
 
     nrof_preprocess_threads = 4
     images_and_labels = []
+    preprocess_func = model.preprecess_function()
     for _ in range(nrof_preprocess_threads):
       filenames, label = input_queue.dequeue()
       images = []
       for filename in tf.unstack(filenames):
         file_contents = tf.read_file(filename)
         image = tf.image.decode_image(file_contents, channels=3)
-        processed_image = vgg_preprocessing.preprocess_image(image, args.image_size, args.image_size, is_training=False, bgr=True)
+        processed_image = preprocess_func(image, args.image_size, args.image_size, is_training=False)
         if args.random_flip:
           processed_image = tf.image.random_flip_left_right(processed_image)
 
@@ -163,10 +167,15 @@ def train(server, cluster_spec, args, ctx):
     image_batch = tf.identity(image_batch, 'input')
     labels_batch = tf.identity(labels_batch, 'label_batch')
 
-    with slim.arg_scope(resnet_v1.resnet_arg_scope(weight_decay=args.weight_decay)):
-      val_logits, _ = resnet_v1.resnet_v1_101_triplet(image_batch, embedding_size=args.embedding_size, is_training=phase_train_placeholder)
+    arg_scope = model.arg_scorp_function()
+    inference_func = model.inference_function()
+    with slim.arg_scope(arg_scope(weight_decay=args.weight_decay)):
+      val_logits, _ = inference_func(image_batch, embedding_size=args.embedding_size, is_training=phase_train_placeholder)
 
-    loader = tf.train.Saver()
+    loader = None
+    if args.transfer_learning:
+      loader = tf.train.Saver()
+
     global_step = tf.train.get_or_create_global_step()
 
     embeddings = tf.squeeze(val_logits['triplet_pre_embeddings'], [1, 2], name='feat_embeddings/squeezed')
@@ -186,18 +195,14 @@ def train(server, cluster_spec, args, ctx):
     tf.summary.scalar('triplet_loss', triplet_loss)
     tf.summary.scalar('total_losses', total_loss)
 
-    train_layers = ['logits', 'mutli_task']
-    var_list = []
-    for v in tf.global_variables():
-      splits = v.name.split("/")
-      if len(splits) > 2 and splits[1] in train_layers:
-        var_list.append(v)
-    
+    var_list = model.filter_variables_to_train(tf.global_variables())
     train_op, opt = facenet.train(total_loss, global_step, args.optimizer,
        learning_rate, args.moving_average_decay, var_list, sync_replicas=args.sync_replicas, replicas_to_aggregate=num_workers)
 
     summary_op = tf.summary.merge_all()
     saver = tf.train.Saver()
+    if not loader:
+      loader = saver
     
     hooks = []
     if args.sync_replicas:
@@ -217,7 +222,7 @@ def train(server, cluster_spec, args, ctx):
                                            stop_grace_period_secs=30) as sess:
       # Training and validation loop
       summary_writer = tf.summary.FileWriter(log_dir, sess.graph) if is_chief else None
-      if is_chief:
+      if is_chief and args.pretrained_ckpt:
         loader.restore(sess, args.pretrained_ckpt)
 
       step = 0

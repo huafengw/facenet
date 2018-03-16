@@ -26,11 +26,10 @@ from __future__ import print_function
 
 from datetime import datetime
 import tensorflow.contrib.slim as slim
-import inception_preprocessing
-from inception_resnet_v2 import inception_resnet_v2, inception_resnet_v2_arg_scope
 import os.path
 import time
 import sys
+sys.path.insert(0, 'src')
 import tensorflow as tf
 import numpy as np
 import random
@@ -39,9 +38,11 @@ import argparse
 import facenet
 import lfw
 
+
 from tensorflow.python.ops import data_flow_ops
 
 from six.moves import xrange
+from src import model_factory
 
 def read_pairs(pairs_filename):
     pairs = []
@@ -77,6 +78,7 @@ def get_paths(validation_dir, pairs):
 
 
 def main(args):
+    model = model_factory.getModel(args.model)
     subdir = datetime.strftime(datetime.now(), '%Y%m%d-%H%M%S')
     log_dir = os.path.join(os.path.expanduser(args.logs_base_dir), subdir)
     if not os.path.isdir(log_dir):  # Create the log directory if it doesn't exist
@@ -96,10 +98,12 @@ def main(args):
     np.random.seed(seed=seed)
     train_set = facenet.get_dataset(args.data_dir)
     
-    print('Model directory: %s' % model_dir)
+    print('Model checkpoint directory: %s' % model_dir)
     print('Log directory: %s' % log_dir)
     if args.pretrained_model:
         print('Pre-trained model: %s' % os.path.expanduser(args.pretrained_model))
+        if args.transfer_learning:
+            model.tweak_pretrained_model(args, args.pretrained_model, args.image_size, model_dir, args.embedding_size)
     
     if args.validation_dir:
         print('Validation directory: %s' % args.validation_dir)
@@ -107,8 +111,7 @@ def main(args):
         pairs = read_pairs(os.path.expanduser(args.validation_pairs))
         # Get the paths for the corresponding images
         validation_paths, actual_issame = get_paths(os.path.expanduser(args.validation_dir), pairs)
-        
-    
+
     with tf.Graph().as_default():
         tf.set_random_seed(seed)
 
@@ -130,17 +133,14 @@ def main(args):
         
         nrof_preprocess_threads = 4
         images_and_labels = []
+        preprocess_func = model.preprecess_function()
         for _ in range(nrof_preprocess_threads):
             filenames, label = input_queue.dequeue()
             images = []
             for filename in tf.unstack(filenames):
                 file_contents = tf.read_file(filename)
                 image = tf.image.decode_image(file_contents, channels=3)
-                processed_image = inception_preprocessing.preprocess_image(image, args.image_size, args.image_size, is_training=False)
-                # if args.random_crop:
-                #     image = tf.random_crop(image, [args.image_size, args.image_size, 3])
-                # else:
-                #     image = tf.image.resize_image_with_crop_or_pad(image, args.image_size, args.image_size)
+                processed_image = preprocess_func(image, args.image_size, args.image_size, is_training=False)
                 if args.random_flip:
                   processed_image = tf.image.random_flip_left_right(processed_image)
     
@@ -156,18 +156,14 @@ def main(args):
         image_batch = tf.identity(image_batch, 'input')
         labels_batch = tf.identity(labels_batch, 'label_batch')
 
-        # Build the inference graph
-        # prelogits, _ = network.inference(image_batch, args.keep_probability,
-        #     phase_train=phase_train_placeholder, bottleneck_layer_size=args.embedding_size,
-        #     weight_decay=args.weight_decay)
-        with slim.arg_scope(inception_resnet_v2_arg_scope(weight_decay=args.weight_decay)):
-            prelogits, _ = inception_resnet_v2(image_batch, num_classes=args.embedding_size, is_training=phase_train_placeholder)
+        arg_scope = model.arg_scorp_function()
+        inference_func = model.inference_function()
+        with slim.arg_scope(arg_scope(weight_decay=args.weight_decay)):
+            prelogits, _ = inference_func(image_batch, num_classes=args.embedding_size, is_training=phase_train_placeholder)
 
         loader = None
         if args.transfer_learning:
-          exclude = ['InceptionResnetV2/Logits', 'InceptionResnetV2/AuxLogits']
-          variables_to_restore = slim.get_variables_to_restore(exclude=exclude)
-          loader = tf.train.Saver(variables_to_restore)
+            loader = tf.train.Saver()
 
         global_step = tf.Variable(0, trainable=False)
 
@@ -185,25 +181,15 @@ def main(args):
         total_loss = tf.add_n([triplet_loss] + regularization_losses, name='total_loss')
 
         # Build a Graph that trains the model with one batch of examples and updates the model parameters
-        train_layers = ['Logits', 'Conv2d_7b_1x1', 'Block8', 'Repeat_2', 'Mixed_7a']
-        var_list = []
-        for v in tf.global_variables():
-          splits = v.name.split("/")
-          if len(splits) > 2 and splits[1] in train_layers:
-            var_list.append(v)
+        var_list = model.filter_variables_to_train(tf.global_variables())
         train_op, _ = facenet.train(total_loss, global_step, args.optimizer,
             learning_rate, args.moving_average_decay, var_list)
 
-        if not loader:
-          loader = tf.train.Saver()
-
         # Create a saver
-        saver = tf.train.Saver(max_to_keep=3)
-        #train_op = facenet.train(total_loss, global_step, args.optimizer,
-        #    learning_rate, args.moving_average_decay, tf.global_variables())
-
-        # Build the summary operation based on the TF collection of Summaries.
         summary_op = tf.summary.merge_all()
+        saver = tf.train.Saver()
+        if not loader:
+            loader = saver
 
         # Start running operations on the Graph.
         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.gpu_memory_fraction)
@@ -467,6 +453,8 @@ def get_learning_rate_from_file(filename, epoch):
 def parse_arguments(argv):
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("--model", type=str, choices=['FACENET', 'VIPUS'],
+        help='The model to use', default='FACENET')
     parser.add_argument('--transfer_learning',
         help='Whether to use a model checkpoint that trained on a different data set, like ImageNet', action='store_true')
     parser.add_argument('--logs_base_dir', type=str,
