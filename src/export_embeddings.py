@@ -48,7 +48,15 @@ def main(args):
   image_paths = list(map(lambda name: os.path.join(args.test_images_dir, name), os.listdir(args.test_images_dir)))
   with tf.Graph().as_default():
     with tf.Session() as sess:
-      saver = tf.train.import_meta_graph(args.ckpt_path + ".meta", clear_devices=True)
+      ckpt_dir = args.ckpt_path.rsplit('/', 1)[0]
+      meta_file = args.ckpt_path + ".meta"
+      if not tf.gfile.Exists(meta_file):
+        meta_files = tf.gfile.ListDirectory(ckpt_dir)
+        meta_files = [s for s in meta_files if s.endswith('.meta')]
+        assert len(meta_files) > 0
+        meta_file = ckpt_dir + '/' + meta_files[0]
+
+      saver = tf.train.import_meta_graph(meta_file, clear_devices=True)
       saver.restore(tf.get_default_session(), args.ckpt_path)
       # Placeholder for the learning rate
 
