@@ -33,10 +33,12 @@ import argparse
 import pickle
 
 
-def preprocess(filepath, image_size):
-  file_contents = tf.read_file(filepath)
-  image = tf.image.decode_image(file_contents, channels=3)
-  return inception_preprocessing.preprocess_image(image, image_size, image_size, is_training=False)
+def preprocess(filename_queue, image_size):
+  reader = tf.WholeFileReader()
+  key, value = reader.read(filename_queue)
+  image = tf.image.decode_image(value, channels=3)
+  precessed_image = inception_preprocessing.preprocess_image(image, image_size, image_size, is_training=False)
+  return key, precessed_image
 
 
 def main(args):
@@ -45,7 +47,10 @@ def main(args):
   print('Test data directory: %s' % args.test_images_dir)
   print('Output file: %s' % output_file)
 
-  image_paths = list(map(lambda name: os.path.join(args.test_images_dir, name), os.listdir(args.test_images_dir)))
+  image_paths = list(map(lambda name: os.path.join(os.path.abspath(args.test_images_dir), name), os.listdir(args.test_images_dir)))
+
+  read_threads = 1
+
   with tf.Graph().as_default():
     with tf.Session() as sess:
       ckpt_dir = args.ckpt_path.rsplit('/', 1)[0]
@@ -72,27 +77,25 @@ def main(args):
       else:
         nrof_batches = (nrof_images // batch_size) + 1
       print('Number of batches: ', nrof_batches)
-      embedding_size = embeddings.get_shape()[1]
-      emb_array = np.zeros((nrof_images, embedding_size))
 
-      dataset = tf.data.Dataset.from_tensor_slices(image_paths)
-      dataset = dataset.map(lambda path: preprocess(path, args.image_size))
-      batched_dataset = dataset.batch(batch_size)
-      iterator = batched_dataset.make_one_shot_iterator()
-      next_element = iterator.get_next()
+      filename_queue = tf.train.string_input_producer(image_paths, shuffle=False)
+      image_list = [preprocess(filename_queue, args.image_size) for _ in range(read_threads)]
 
+      filenames_batch, images_batch = tf.train.batch_join(image_list,
+         shapes=[(), (args.image_size, args.image_size, 3)], batch_size=batch_size, allow_smaller_final_batch=True)
+
+      sess.run(tf.global_variables_initializer())
+      coord = tf.train.Coordinator()
+      tf.train.start_queue_runners(sess=sess, coord=coord)
+
+      all_features = dict()
       for i in range(nrof_batches):
-        if i == nrof_batches - 1:
-          n = nrof_images
-        else:
-          n = i * batch_size + batch_size
-        images = sess.run(next_element)
+        filenames, images = sess.run([filenames_batch, images_batch])
         feed_dict = {images_placeholder: images, phase_train_placeholder: False}
         embed = sess.run(embeddings, feed_dict=feed_dict)
-        emb_array[i * batch_size:n, :] = embed
-      all_features = dict()
-      for i in range(nrof_images):
-        all_features[image_paths[i]] = emb_array[i].tolist()
+        for j in range(len(filenames)):
+          all_features[filenames[j]] = embed[j].tolist()
+
       with open(output_file, 'wb') as fd:
         pickle.dump(all_features, fd)
 
