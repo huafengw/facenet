@@ -24,6 +24,9 @@ class Model(object):
   def arg_scorp_function(self):
     pass
 
+  def excluded_variables_when_restore(self):
+    pass
+
 
 class VipUSModel(Model):
 
@@ -57,6 +60,9 @@ class VipUSModel(Model):
       if len(splits) > 2 and splits[1] in train_layers:
         var_list.append(v)
     return var_list
+
+  def excluded_variables_when_restore(self):
+    return []
 
 
 class InceptionImageNetModel(Model):
@@ -125,6 +131,9 @@ class InceptionImageNetModel(Model):
         saver.save(sess, checkpoint_path, write_meta_graph=False)
         metagraph_filename = os.path.join(output_dir, 'model-%s.meta' % bottleneck_size)
         saver.export_meta_graph(metagraph_filename)
+
+  def excluded_variables_when_restore(self):
+    return ['InceptionResnetV2/Logits', 'InceptionResnetV2/AuxLogits']
 
 
 def getModel(model_name):

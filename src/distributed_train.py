@@ -110,9 +110,6 @@ def train(server, cluster_spec, args, ctx):
     if not tf.gfile.Exists(log_dir):
         tf.gfile.MakeDirs(log_dir)
 
-  if is_chief and args.transfer_learning:
-    model.tweak_pretrained_model(args, args.pretrained_ckpt, args.image_size, checkpoint_dir, args.embedding_size)
-
   seed = random.SystemRandom().randint(0, 10240)
   print("Random seed: " + str(seed))
   np.random.seed(seed=seed)
@@ -168,18 +165,18 @@ def train(server, cluster_spec, args, ctx):
     labels_batch = tf.identity(labels_batch, 'label_batch')
 
     arg_scope = model.arg_scorp_function()
-    inference_func = model.inference_function()
     with slim.arg_scope(arg_scope(weight_decay=args.weight_decay)):
-      val_logits, _ = inference_func(image_batch, embedding_size=args.embedding_size, is_training=phase_train_placeholder)
+      val_logits, _ = model.inference(image_batch, args.embedding_size, phase_train_placeholder)
 
     loader = None
     if args.transfer_learning:
-      loader = tf.train.Saver()
+      exclude = model.excluded_variables_when_restore()
+      variables_to_restore = slim.get_variables_to_restore(exclude=exclude)
+      loader = tf.train.Saver(variables_to_restore)
 
     global_step = tf.train.get_or_create_global_step()
 
-    embeddings = tf.squeeze(val_logits['triplet_pre_embeddings'], [1, 2], name='feat_embeddings/squeezed')
-    embeddings = tf.nn.l2_normalize(embeddings, 1, 1e-10, name='embeddings')
+    embeddings = tf.nn.l2_normalize(val_logits, 1, 1e-10, name='embeddings')
     # Split embeddings into anchor, positive and negative and calculate triplet loss
     anchor, positive, negative = tf.unstack(tf.reshape(embeddings, [-1, 3, args.embedding_size]), 3, 1)
     triplet_loss = facenet.triplet_loss(anchor, positive, negative, args.alpha)
@@ -211,7 +208,8 @@ def train(server, cluster_spec, args, ctx):
     sess_config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False,
                                  device_filters=['/job:ps', '/job:worker/task:%d' % task_index])
     #sess_config.operation_timeout_in_ms=80000
-    save_path = os.path.join(checkpoint_dir, "model.ckpt")
+
+    save_path = os.path.join(checkpoint_dir, 'model-%s.ckpt' % args.model.lower())
     
     with tf.train.MonitoredTrainingSession(master=server.target,
                                            is_chief=is_chief,
@@ -223,12 +221,12 @@ def train(server, cluster_spec, args, ctx):
       # Training and validation loop
       summary_writer = tf.summary.FileWriter(log_dir, sess.graph) if is_chief else None
       if is_chief and args.pretrained_ckpt:
+        print('Restoring pretrained model: %s' % args.pretrained_ckpt)
         loader.restore(sess, args.pretrained_ckpt)
 
       step = 0
       while True:
         if is_chief:
-          # checkpoint_path = os.path.join(checkpoint_dir, 'model-%s.ckpt' % "test")
           # saver.save(sess._sess._sess._sess._sess, checkpoint_path, global_step=step, write_meta_graph=False)
           evaluate(sess, val_image_paths, embeddings, labels_batch, image_paths_placeholder, labels_placeholder,
                    batch_size_placeholder, learning_rate_placeholder, phase_train_placeholder, enqueue_op,

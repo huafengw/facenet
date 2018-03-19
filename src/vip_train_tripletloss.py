@@ -115,14 +115,6 @@ def main(args):
     print('Log directory: %s' % log_dir)
     if args.pretrained_model:
         print('Pre-trained model: %s' % os.path.expanduser(args.pretrained_model))
-        if args.transfer_learning:
-            model.tweak_pretrained_model(args, args.pretrained_model, args.image_size, model_dir, args.embedding_size)
-        else:
-            parent_dir = args.pretrained_model.rsplit('/', 1)[0]
-            files = tf.gfile.ListDirectory(parent_dir)
-            for file in files:
-                tf.gfile.Copy(parent_dir + '/' + file, model_dir + "/" + file)
-
 
     if args.validation_dir:
         print('Validation directory: %s' % args.validation_dir)
@@ -181,9 +173,11 @@ def main(args):
 
         loader = None
         if args.transfer_learning:
-            loader = tf.train.Saver()
+            exclude = model.excluded_variables_when_restore()
+            variables_to_restore = slim.get_variables_to_restore(exclude=exclude)
+            loader = tf.train.Saver(variables_to_restore)
 
-        global_step = tf.Variable(0, trainable=False)
+        global_step = tf.train.get_or_create_global_step()
 
         embeddings = tf.nn.l2_normalize(prelogits, 1, 1e-10, name='embeddings')
         # Split embeddings into anchor, positive and negative and calculate triplet loss
@@ -223,11 +217,8 @@ def main(args):
 
         with sess.as_default():
             if args.pretrained_model:
-                ckpt = get_ckpt_file(model_dir)
-                if ckpt:
-                  ckpt_path = model_dir + '/' + ckpt
-                  print('Restoring pretrained model: %s' % ckpt_path)
-                  loader.restore(sess, os.path.expanduser(ckpt_path))
+                print('Restoring pretrained model: %s' % args.pretrained_model)
+                loader.restore(sess, args.pretrained_model)
 
             # Training and validation loop
             epoch = 0
@@ -242,7 +233,7 @@ def main(args):
                     args.embedding_size, anchor, positive, negative, triplet_loss)
 
                 # Save variables and the metagraph if it doesn't exist already
-                save_variables_and_metagraph(sess, saver, summary_writer, model_dir, subdir, step)
+                save_variables_and_metagraph(sess, saver, summary_writer, model_dir, args.model.lower(), step)
 
                 # Evaluate on validation data set
                 if args.validation_dir:
@@ -438,7 +429,7 @@ def save_variables_and_metagraph(sess, saver, summary_writer, model_dir, model_n
     print('Saving variables')
     start_time = time.time()
     checkpoint_path = os.path.join(model_dir, 'model-%s.ckpt' % model_name)
-    saver.save(sess, checkpoint_path, global_step=step, write_meta_graph=False)
+    saver.save(sess, checkpoint_path, global_step=step)
     save_time_variables = time.time() - start_time
     print('Variables saved in %.2f seconds' % save_time_variables)
     metagraph_filename = os.path.join(model_dir, 'model-%s.meta' % model_name)
