@@ -79,6 +79,10 @@ def get_paths(validation_dir, pairs):
 
 
 def get_ckpt_file(ckpt_dir):
+    files = tf.gfile.ListDirectory(ckpt_dir)
+    ckpt_files = [s for s in files if s.endswith('.ckpt')]
+    if len(ckpt_files) > 0:
+        return ckpt_files[0]
     ckpt = tf.train.get_checkpoint_state(ckpt_dir)
     if ckpt and ckpt.model_checkpoint_path:
         ckpt_file = os.path.basename(ckpt.model_checkpoint_path)
@@ -113,7 +117,13 @@ def main(args):
         print('Pre-trained model: %s' % os.path.expanduser(args.pretrained_model))
         if args.transfer_learning:
             model.tweak_pretrained_model(args, args.pretrained_model, args.image_size, model_dir, args.embedding_size)
-    
+        else:
+            parent_dir = args.pretrained_mode.rsplit('/', 1)[0]
+            files = tf.gfile.ListDirectory(parent_dir)
+            for file in files:
+                tf.gfile.Copy(parent_dir + '/' + file, model_dir + "/" + file)
+
+
     if args.validation_dir:
         print('Validation directory: %s' % args.validation_dir)
         # Read the file containing the pairs used for testing
