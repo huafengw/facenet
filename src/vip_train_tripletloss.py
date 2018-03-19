@@ -118,7 +118,7 @@ def main(args):
         if args.transfer_learning:
             model.tweak_pretrained_model(args, args.pretrained_model, args.image_size, model_dir, args.embedding_size)
         else:
-            parent_dir = args.pretrained_mode.rsplit('/', 1)[0]
+            parent_dir = args.pretrained_model.rsplit('/', 1)[0]
             files = tf.gfile.ListDirectory(parent_dir)
             for file in files:
                 tf.gfile.Copy(parent_dir + '/' + file, model_dir + "/" + file)
@@ -176,9 +176,8 @@ def main(args):
         labels_batch = tf.identity(labels_batch, 'label_batch')
 
         arg_scope = model.arg_scorp_function()
-        inference_func = model.inference_function()
         with slim.arg_scope(arg_scope(weight_decay=args.weight_decay)):
-            prelogits, _ = inference_func(image_batch, num_classes=args.embedding_size, is_training=phase_train_placeholder)
+            prelogits, _ = model.inference(image_batch, args.embedding_size, phase_train_placeholder)
 
         loader = None
         if args.transfer_learning:

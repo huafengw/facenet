@@ -407,7 +407,8 @@ def resnet_v1_triplet(inputs,
                                                       )
                         logits["triplet_pre_embeddings"] = feat_embeddings
                 end_points = slim.utils.convert_collection_to_dict(end_points_collection)
-                return logits, end_points
+                #return logits, end_points
+                return tf.squeeze(feat_embeddings, [1, 2], name='feat_embeddings/squeezed'), end_points
 
 
 resnet_v1_triplet.default_image_size = 224

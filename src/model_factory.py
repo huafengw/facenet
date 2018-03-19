@@ -12,7 +12,7 @@ class Model(object):
   def preprecess_function(self):
     pass
 
-  def inference_function(self):
+  def inference(self, image_batch, embedding_size, phase_train_placeholder):
     pass
 
   def filter_variables_to_train(self, variables):
@@ -38,8 +38,8 @@ class VipUSModel(Model):
     return resnet_v1.resnet_arg_scope
 
 
-  def inference_function(self):
-    return resnet_v1.resnet_v1_101_triplet
+  def inference(self, image_batch, embedding_size, phase_train_placeholder):
+    return resnet_v1.resnet_v1_101_triplet(image_batch, embedding_size=embedding_size, is_training=phase_train_placeholder)
 
 
   def tweak_pretrained_model(self, args, pretrained_ckpt, image_size, checkpoint_dir, embedding_size):
@@ -67,8 +67,8 @@ class InceptionImageNetModel(Model):
   def arg_scorp_function(self):
     return inception_resnet_v2.inception_resnet_v2_arg_scope
 
-  def inference_function(self):
-    return inception_resnet_v2.inception_resnet_v2
+  def inference(self, image_batch, embedding_size, phase_train_placeholder):
+    return inception_resnet_v2.inception_resnet_v2(image_batch, num_classes=embedding_size, is_training=phase_train_placeholder)
 
   def tweak_pretrained_model(self, args, pretrained_ckpt, image_size, checkpoint_dir, embedding_size):
     print("Transforming the pretrained inception model...")
