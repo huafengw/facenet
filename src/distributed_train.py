@@ -220,9 +220,9 @@ def train(server, cluster_spec, args, ctx):
                                            stop_grace_period_secs=30) as sess:
       # Training and validation loop
       summary_writer = tf.summary.FileWriter(log_dir, sess.graph) if is_chief else None
-      if is_chief and args.pretrained_ckpt:
-        print('Restoring pretrained model: %s' % args.pretrained_ckpt)
-        loader.restore(sess, args.pretrained_ckpt)
+      if is_chief and args.pretrained_model:
+        print('Restoring pretrained model: %s' % args.pretrained_model)
+        loader.restore(sess, args.pretrained_model)
 
       step = 0
       while True:

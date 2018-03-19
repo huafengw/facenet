@@ -37,7 +37,7 @@ if __name__ == '__main__':
   parser.add_argument("--local_data_path", type=str, help="The local fs path of input dataset")
   parser.add_argument('--num_executor', default=3, type=int, help='The spark executor num')
   parser.add_argument("--tensorboard", help="launch tensorboard process", action="store_true")
-  parser.add_argument("--pretrained_ckpt", help="The pretrained inception model", default='hdfs://bipcluster/user/vincent.wang/facenet/inception_resnet_v2_2016_08_30.ckpt')
+  parser.add_argument("--pretrained_model", help="The pretrained inception model", default='hdfs://bipcluster/user/vincent.wang/facenet/inception_resnet_v2_2016_08_30.ckpt')
   parser.add_argument("--spark_executor_cores", default=4, type=int, help='The spark executor cores')
   parser.add_argument('--workspace', type=str,
         help='Directory where to write event logs and checkpoints on hdfs.', default='hdfs://bipcluster/user/vincent.wang/facenet')
